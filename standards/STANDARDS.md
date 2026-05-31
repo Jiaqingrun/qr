@@ -1,0 +1,32 @@
+# 个人开发 / 存储 / 行为规范
+
+> 这是一份"活文档"。`kb` 会用它来生成 Cursor 规则、对照你的实际行为给出偏差提醒。
+> 随时编辑：`kb standards --edit`。
+
+## 一、存储与目录规范
+- 所有代码项目统一放在 `~/Projects/<project-name>`，**不要**放在桌面 / 下载 / 主目录根。
+- 项目命名用小写中划线：`my-project`，避免空格和大小写混用（本机文件系统大小写不敏感）。
+- 个人数据/知识库数据放 `~/.kb`；临时文件放系统临时目录，不留在桌面。
+- 大文件（ISO / 安装包 / 视频）不放桌面，归档到外部盘或 NAS。
+
+## 二、Python 环境规范
+- 系统 Python（`/usr/bin/python3`）保持纯净，不 pip 安装任何东西。
+- 每个需要依赖的项目用独立 conda 环境：`conda create -n <name> python=3.x`。
+- 统一用 `/opt/anaconda3` 作为唯一 conda 入口；环境名用小写。
+- 每个项目根目录提供 `requirements.txt` 或 `environment.yml`，可复现。
+
+## 三、Git 与开发规范
+- 每个项目第一步 `git init` 并尽早提交，避免无版本控制的"裸代码"。
+- 提交信息写清"为什么"，使用动词开头：add / update / fix / refactor。
+- 每个项目有 `README.md` 说明用途、运行方式、依赖。
+- 密钥、token 绝不写进代码或 dotfile 明文；放入 `~/.config/zsh/secrets.zsh`（权限 600）或项目 `.env`（加入 `.gitignore`）。
+
+## 四、AI 协作规范
+- 复杂/多文件任务先让 AI 出方案再动手。
+- 项目里放 `AGENTS.md` 与 `.cursor/rules`，让 AI 自动遵守本规范（`kb rules` 生成）。
+- 重要的 AI 对话结论，用 `kb log` 记一条笔记沉淀下来。
+
+## 五、行为与复盘规范
+- 每天用 `kb log` 记录关键进展或决定。
+- 每周查看 `kb summary --period week` 的总结，对照本规范修正习惯。
+- 阶段性把散落的实验项目要么并入 `~/Projects` 正式管理，要么清理。
