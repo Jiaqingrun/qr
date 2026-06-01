@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+*.egg-info/
+.DS_Store
+build/
+dist/
+.venv/
+packaging/macos/build/
+packaging/macos/*.iconset

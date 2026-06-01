@@ -1,11 +1,18 @@
+---
+description: 个人开发/存储/行为规范（由 QR本地知识库 生成）
+globs:
+alwaysApply: true
+---
+
+以下是用户的个人规范，请在本项目的所有开发与文件操作中遵守：
+
 # 个人开发 / 存储 / 行为规范
 
 > 这是一份"活文档"。`QR本地知识库` 会用它来生成 Cursor 规则、对照你的实际行为给出偏差提醒。
 > 随时编辑：`qr standards --edit`。
 
 ## 一、存储与目录规范
-- 所有代码项目统一放在 **`~/QR/<分类>/<project-name>`**（分类如 `dev` / `mobile` / `experiments` / `tools` / `archive`），**不要**放在桌面 / 下载 / `~/Projects` 散落目录。
-- 新建项目：`qr workspace new <名称> --category dev`。
+- 所有代码项目统一放在 `~/Projects/<project-name>`，**不要**放在桌面 / 下载 / 主目录根。
 - 项目命名用小写中划线：`my-project`，避免空格和大小写混用（本机文件系统大小写不敏感）。
 - 个人数据/知识库数据放 `~/.qr`；临时文件放系统临时目录，不留在桌面。
 - 大文件（ISO / 安装包 / 视频）不放桌面，归档到外部盘或 NAS。
