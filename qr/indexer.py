@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import fnmatch
 import hashlib
 import os
+import sqlite3
 from pathlib import Path
 
-from . import config, db
+from . import config, db, scan_paths
 from .ollama_client import Ollama
 from .vectors import to_blob
 
@@ -115,15 +117,73 @@ def _index_document(
     conn.commit()
 
 
-def _iter_files(roots, exclude, exts, max_bytes):
+def path_excluded(p: Path, patterns: list[str]) -> bool:
+    if not patterns:
+        return False
+    name = p.name
+    full = str(p.resolve()).replace("\\", "/")
+    for pat in patterns:
+        if not pat:
+            continue
+        if "/" in pat or "**" in pat:
+            if fnmatch.fnmatch(full, pat) or fnmatch.fnmatch(full, f"*/{pat.lstrip('/')}"):
+                return True
+            continue
+        if fnmatch.fnmatch(name, pat) or pat in full:
+            return True
+    return False
+
+
+def purge_excluded_documents(patterns: list[str] | None = None) -> dict[str, int]:
+    """从索引中删除命中 exclude 规则的文件（如评测脚本）。"""
+    cfg = config.load_config()
+    patterns = patterns if patterns is not None else list(
+        cfg.get("index_exclude_path_patterns") or [],
+    )
+    if not patterns:
+        return {"documents_removed": 0}
+    removed = 0
+    with db.session() as conn:
+        rows = conn.execute("SELECT id, path FROM documents").fetchall()
+        for row in rows:
+            try:
+                p = Path(row["path"])
+            except (TypeError, ValueError):
+                continue
+            if not path_excluded(p, patterns):
+                continue
+            doc_id = int(row["id"])
+            if db.vec_available():
+                chunk_rows = conn.execute(
+                    "SELECT id FROM chunks WHERE doc_id=?", (doc_id,),
+                ).fetchall()
+                for cr in chunk_rows:
+                    try:
+                        conn.execute(
+                            "DELETE FROM vec_chunks WHERE rowid=?", (int(cr["id"]),),
+                        )
+                    except sqlite3.OperationalError:
+                        pass
+            db.fts_delete_doc(conn, doc_id)
+            conn.execute("DELETE FROM chunks WHERE doc_id=?", (doc_id,))
+            conn.execute("DELETE FROM documents WHERE id=?", (doc_id,))
+            removed += 1
+        conn.commit()
+    return {"documents_removed": removed}
+
+
+def _iter_files(roots, exclude, exts, max_bytes, path_patterns):
     for root in roots:
         if not root.exists():
             continue
         for dirpath, dirnames, filenames in os.walk(root):
+            scan_paths.prune_walk_dirnames(dirnames, Path(dirpath))
             dirnames[:] = [d for d in dirnames if d not in exclude
                            and not d.startswith(".") and not d.endswith(".egg-info")]
             for fn in filenames:
                 p = Path(dirpath) / fn
+                if path_excluded(p, path_patterns):
+                    continue
                 if p.suffix.lower() not in exts:
                     continue
                 try:
@@ -152,15 +212,17 @@ def index_meta(reindex: bool = False, progress=None) -> dict[str, int]:
 
 def index(reindex: bool = False, progress=None) -> dict[str, int]:
     cfg = config.load_config()
+    purge = purge_excluded_documents(list(cfg.get("index_exclude_path_patterns") or []))
     roots = config.expand_paths(cfg["index_roots"])
     exclude = set(cfg["index_exclude_dirs"])
+    path_patterns = list(cfg.get("index_exclude_path_patterns") or [])
     exts = set(cfg["index_extensions"])
     max_bytes = int(cfg["max_file_bytes"])
     ol = Ollama()
 
-    stats = {"files": 0, "chunks": 0, "skipped": 0}
+    stats = {"files": 0, "chunks": 0, "skipped": 0, **purge}
     with db.session() as conn:
-        for root, p in _iter_files(roots, exclude, exts, max_bytes):
+        for root, p in _iter_files(roots, exclude, exts, max_bytes, path_patterns):
             try:
                 raw = p.read_text(encoding="utf-8", errors="replace")
             except OSError:
@@ -170,12 +232,14 @@ def index(reindex: bool = False, progress=None) -> dict[str, int]:
             project = workspace.project_from_path(p, root)
             _index_document(conn, p, project, raw, cfg, ol, reindex, stats, progress)
     meta = index_meta(reindex=reindex, progress=progress)
-    for key in stats:
-        stats[key] += meta[key]
+    for key, val in meta.items():
+        if key in stats:
+            stats[key] += val
     from . import transcripts_index
     tx = transcripts_index.index_transcripts(reindex=reindex)
-    for key in stats:
-        stats[key] += tx[key]
+    for key, val in tx.items():
+        if key in stats:
+            stats[key] += val
     if reindex:
         with db.session() as conn:
             db.rebuild_fts(conn)

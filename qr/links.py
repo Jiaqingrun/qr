@@ -77,8 +77,15 @@ def _first_git_file(content: str, repo: Path) -> Path | None:
     return None
 
 
-def event_link(source: str, title: str | None, content: str | None,
-               project: str | None) -> dict | None:
+def event_link(
+    source: str,
+    title: str | None,
+    content: str | None,
+    project: str | None,
+    *,
+    uid: str | None = None,
+    meta: str | None = None,
+) -> dict | None:
     """解析事件可打开的目标路径。"""
     if source == "file" and content:
         p = Path(content).expanduser()
@@ -95,6 +102,13 @@ def event_link(source: str, title: str | None, content: str | None,
                 return {"path": str(f), "label": f.name, "kind": "file"}
         if path_allowed(repo):
             return {"path": str(repo), "label": project or repo.name, "kind": "dir"}
+
+    if source == "cursor":
+        from . import cursor_archive
+
+        return cursor_archive.link_for_event(
+            uid or "", meta, title=title, content=content
+        )
 
     return None
 

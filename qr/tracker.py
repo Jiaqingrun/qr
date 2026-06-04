@@ -65,8 +65,11 @@ def sample() -> dict:
     idle = get_idle_seconds()
     front = get_frontmost()
     active = idle < IDLE_THRESHOLD and front is not None
-    return {"idle": round(idle, 1), "app": front[0] if front else None,
-            "bundle": front[1] if front else "", "active": active}
+    out = {"idle": round(idle, 1), "app": front[0] if front else None,
+           "bundle": front[1] if front else "", "active": active}
+    if front is None and idle < IDLE_THRESHOLD:
+        out["warn"] = "无法读取前台应用（检查辅助功能/自动化权限）"
+    return out
 
 
 def run(interval: int = SAMPLE_INTERVAL, idle_threshold: int = IDLE_THRESHOLD) -> None:
@@ -81,6 +84,12 @@ def run(interval: int = SAMPLE_INTERVAL, idle_threshold: int = IDLE_THRESHOLD) -
             now = int(time.time())
             idle = get_idle_seconds()
             front = None if idle >= idle_threshold else get_frontmost()
+            if idle < idle_threshold and front is None:
+                db.set_state(conn, "tracker_last_error",
+                             "无法读取前台应用；请 qr permissions open")
+            else:
+                db.set_state(conn, "tracker_last_error", "")
+                db.set_state(conn, "tracker_last_ok", str(now))
             app = front[0] if front else None
             bundle = front[1] if front else ""
             if app is not None and app == cur_app and row_id is not None:

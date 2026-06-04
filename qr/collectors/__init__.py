@@ -7,6 +7,7 @@ COLLECTORS = {
     "git": gitlog.collect,
     "files": files.collect,
     "cursor": cursor.collect,
+    "notes": notes.collect,
 }
 
 
@@ -27,4 +28,9 @@ def run(
             result[name] = fn(conn, backfill=True, since_ts=since_ts, roots=roots)
         else:
             result[name] = fn(conn)
+    if "cursor" in sources:
+        from .. import prompt_guides
+
+        pg = prompt_guides.sync_cursor_inbox(conn)
+        result["prompt_fragments"] = pg.get("new", 0)
     return result

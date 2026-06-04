@@ -54,6 +54,7 @@ def _tools_list():
                         "k": {"type": "integer", "default": 6},
                         "project": {"type": "string"},
                         "deep": {"type": "boolean", "default": False},
+                        "model": {"type": "string", "description": "Ollama 模型 id，见 ask_models"},
                     },
                     "required": ["question"],
                 },
@@ -102,9 +103,15 @@ def _call_tool(name: str, arguments: dict) -> dict:
         text = "\n\n".join(_fmt_hit(h, i) for i, h in enumerate(hits)) or "无命中"
         return {"content": [{"type": "text", "text": text}]}
     if name == "qr_ask":
-        from qr import config
+        from qr import models as qr_models
 
-        model = config.load_config()["deep_model"] if arguments.get("deep") else None
+        try:
+            model = qr_models.resolve_ask_model(
+                arguments.get("model"),
+                deep_legacy=bool(arguments.get("deep")),
+            )
+        except ValueError as e:
+            return {"content": [{"type": "text", "text": str(e)}], "isError": True}
         answer, hits, web = query.ask(
             arguments["question"],
             int(arguments.get("k", 6)),

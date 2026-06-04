@@ -64,6 +64,15 @@ CREATE TABLE IF NOT EXISTS standards_versions (
     created_at INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS project_standards_versions (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    project    TEXT NOT NULL,
+    content    TEXT NOT NULL,
+    note       TEXT,
+    created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_proj_std_project ON project_standards_versions(project);
+
 CREATE TABLE IF NOT EXISTS app_usage (
     id        INTEGER PRIMARY KEY AUTOINCREMENT,
     app       TEXT NOT NULL,
@@ -179,9 +188,37 @@ def fts_delete_doc(conn: sqlite3.Connection, doc_id: int) -> None:
         pass
 
 
+def _ensure_column(conn: sqlite3.Connection, table: str, column: str, ddl: str) -> None:
+    cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    if column not in cols:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+
+
+def init_db_retry(*, retries: int = 12, delay: float = 0.35) -> None:
+    """init_db with backoff when launchd 多进程同时打开 qr.db。"""
+    last: sqlite3.OperationalError | None = None
+    for attempt in range(retries):
+        try:
+            init_db()
+            return
+        except sqlite3.OperationalError as e:
+            if "locked" not in str(e).lower():
+                raise
+            last = e
+            time.sleep(delay * (attempt + 1))
+    if last:
+        raise last
+
+
 def init_db() -> None:
     with connect() as conn:
         conn.executescript(SCHEMA)
+        _ensure_column(conn, "chat_sessions", "model", "TEXT")
+        from . import prompt_guides, project_relations
+
+        prompt_guides.ensure_schema(conn)
+        project_relations.ensure_schema(conn)
+        conn.commit()
         init_fts(conn)
         if vec_available():
             dim = int(config.load_config().get("embed_dim", 768))
@@ -244,6 +281,19 @@ def insert_event(conn: sqlite3.Connection, *, uid: str, ts: int, source: str,
         (uid, ts, source, project, title, content, meta),
     )
     return cur.rowcount > 0
+
+
+def upsert_event(conn: sqlite3.Connection, *, uid: str, ts: int, source: str,
+                 title: str = "", content: str = "", project: str | None = None,
+                 meta: str | None = None) -> None:
+    conn.execute(
+        "INSERT INTO events(uid,ts,source,project,title,content,meta) "
+        "VALUES(?,?,?,?,?,?,?) "
+        "ON CONFLICT(uid) DO UPDATE SET "
+        "ts=excluded.ts, source=excluded.source, project=excluded.project, "
+        "title=excluded.title, content=excluded.content, meta=excluded.meta",
+        (uid, ts, source, project, title, content, meta),
+    )
 
 
 def now() -> int:

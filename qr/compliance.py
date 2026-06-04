@@ -30,6 +30,16 @@ def check_project(path: Path) -> dict:
         ok_items.append("AGENTS.md")
     else:
         issues.append("缺少 AGENTS.md 或 .cursor/rules")
+    from . import project_standards, workspace
+
+    if workspace.is_under_workspace(path):
+        if project_standards.read_project_standards(path):
+            ok_items.append("PROJECT.md")
+        else:
+            issues.append("缺少 PROJECT.md（项目级规范，可用 qr project standards --edit 创建）")
+        personal = rules / "00-personal-standards.mdc"
+        if not personal.is_file():
+            issues.append("缺少 00-personal-standards.mdc（请 qr rules 生成）")
     standards = config.STANDARDS_PATH
     if standards.exists():
         ok_items.append("个人规范已配置")

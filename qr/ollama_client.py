@@ -5,7 +5,7 @@ import re
 
 import httpx
 
-from . import config
+from . import config, models
 
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 
@@ -45,10 +45,11 @@ class Ollama:
         cfg = config.load_config()
         resolved = model or self.chat_model
         if num_ctx is None:
-            if resolved == cfg.get("deep_model"):
+            if models.is_reasoning_model(resolved, cfg):
                 num_ctx = int(cfg.get("deep_context_tokens", 131072))
             else:
                 num_ctx = int(cfg.get("context_tokens", 32768))
+        strip_think = strip_think and models.is_reasoning_model(resolved, cfg)
         payload: dict = {
             "model": resolved,
             "prompt": prompt,
@@ -78,10 +79,11 @@ class Ollama:
         cfg = config.load_config()
         resolved = model or self.chat_model
         if num_ctx is None:
-            if resolved == cfg.get("deep_model"):
+            if models.is_reasoning_model(resolved, cfg):
                 num_ctx = int(cfg.get("deep_context_tokens", 131072))
             else:
                 num_ctx = int(cfg.get("context_tokens", 32768))
+        strip_think = strip_think and models.is_reasoning_model(resolved, cfg)
         payload: dict = {
             "model": resolved,
             "prompt": prompt,

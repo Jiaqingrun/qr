@@ -1,19 +1,25 @@
 from __future__ import annotations
 
-import datetime
 import hashlib
 import json
-import os
 import re
 import sqlite3
-import time
 from pathlib import Path
 
-from .. import config, db
+from .. import config, cursor_archive, db, timeutil
 
 _QUERY_RE = re.compile(r"<user_query>\s*(.*?)\s*</user_query>", re.DOTALL)
-_TS_RE = re.compile(r"<timestamp>(.*?)</timestamp>", re.DOTALL)
 _TAG_RE = re.compile(r"<[^>]+>")
+_PASTE_MARKERS = (
+    re.compile(r"\n仅提问\s*·"),
+    re.compile(r"\n查看对话\s*\n"),
+    re.compile(r"\n提问\s*\n"),
+    re.compile(r"\n回复\s*\n"),
+)
+_TRAILING_UI_LINE = re.compile(
+    r"^(cursor|查看对话|file)$|并且约\s+.+\s+估\s*$",
+    re.MULTILINE,
+)
 
 
 def _texts(message) -> list[str]:
@@ -35,24 +41,26 @@ def _clean_project(name: str) -> str:
     return parts[-1] if parts else name
 
 
-def _parse_timestamp(text: str) -> int | None:
-    m = _TS_RE.search(text)
-    if not m:
-        return None
-    raw = re.sub(r"\s*\([^)]+\)$", "", m.group(1).strip())
-    try:
-        dt = datetime.datetime.strptime(raw, "%A, %B %d, %Y, %I:%M %p")
-        return int(time.mktime(dt.timetuple()))
-    except ValueError:
-        return None
-
-
 def _extract_query(text: str) -> str | None:
     m = _QUERY_RE.search(text)
     q = m.group(1).strip() if m else _TAG_RE.sub("", text).strip()
     if not q or q.startswith("[{"):
         return None
-    return q
+    return sanitize_user_query(q)
+
+
+def sanitize_user_query(q: str) -> str:
+    """去掉用户消息里粘贴的时间线/旧归档片段，保留真实提问。"""
+    text = (q or "").strip()
+    if not text:
+        return ""
+    for pat in _PASTE_MARKERS:
+        m = pat.search(text)
+        if m:
+            text = text[: m.start()].rstrip()
+    text = _TRAILING_UI_LINE.sub("", text)
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+    return text
 
 
 def _parse_transcript(path: Path) -> list[dict]:
@@ -78,7 +86,7 @@ def _parse_transcript(path: Path) -> list[dict]:
                             continue
                         queries.append({
                             "query": q,
-                            "ts": _parse_timestamp(t),
+                            "ts": timeutil.parse_cursor_timestamp(t),
                             "assistant_before": assistant_turns,
                         })
                 elif role == "assistant":
@@ -102,33 +110,42 @@ def _iter_transcripts(base: Path) -> dict[str, Path]:
     return found
 
 
-def _resolve_query_ts(queries: list[dict], idx: int, file_mtime: int) -> int:
-    ts = queries[idx].get("ts")
-    if ts:
-        return ts
-    prev_i = prev_ts = None
-    for j in range(idx - 1, -1, -1):
-        if queries[j].get("ts"):
-            prev_i, prev_ts = j, queries[j]["ts"]
-            break
-    next_i = next_ts = None
-    for j in range(idx + 1, len(queries)):
-        if queries[j].get("ts"):
-            next_i, next_ts = j, queries[j]["ts"]
-            break
-    if prev_ts and next_ts and next_i != prev_i:
-        ratio = (idx - prev_i) / (next_i - prev_i)
-        return int(prev_ts + (next_ts - prev_ts) * ratio)
-    if prev_ts:
-        return prev_ts + (idx - (prev_i or idx)) * 60 + 1
-    if next_ts:
-        return next_ts - (next_i - idx) * 60 - 1
-    return file_mtime - (len(queries) - idx) * 30
+def _assign_query_times(queries: list[dict], jsonl: Path) -> None:
+    """为无 <timestamp> 的消息插值；活跃会话以转录 mtime 为末段锚点，避免旧标签把新问话压在几天前。"""
+    if not queries:
+        return
+    file_start, file_end = timeutil.file_time_bounds(jsonl)
+    known = {i: int(q["ts"]) for i, q in enumerate(queries) if q.get("ts")}
+    if known and file_end > max(known.values()) + 3600:
+        # 转录仍在更新，但消息里嵌的是较早的 <timestamp>：只保留近 24h 内的锚点
+        known = {i: t for i, t in known.items() if t >= file_end - 86400}
+    if known:
+        start_ts = min(min(known.values()), file_start)
+        end_ts = max(max(known.values()), file_end)
+    else:
+        start_ts, end_ts = file_start, file_end
+    times = timeutil.interpolate_series(
+        len(queries), known, start_ts=start_ts, end_ts=end_ts, step_seconds=45,
+    )
+    for i, q in enumerate(queries):
+        q["ts"] = times[i]
+        q["ts_estimated"] = i not in known
+
+
+def _max_event_ts(conn: sqlite3.Connection, uuid: str) -> int:
+    row = conn.execute(
+        "SELECT MAX(ts) t FROM events WHERE uid LIKE ?",
+        (f"cursor:{uuid}:q%",),
+    ).fetchone()
+    return int(row["t"] or 0)
 
 
 def _clear_cursor_state(conn: sqlite3.Connection) -> None:
     conn.execute("DELETE FROM events WHERE source='cursor'")
-    conn.execute("DELETE FROM state WHERE key LIKE 'cursor_%'")
+
+
+def _slug(q: str) -> str:
+    return hashlib.sha1(q.encode("utf-8", "replace")).hexdigest()[:10]
 
 
 def _upsert_query_event(
@@ -138,17 +155,26 @@ def _upsert_query_event(
     idx: int,
     total: int,
     query: str,
+    reply: str,
     ts: int,
     project: str,
+    ts_estimated: bool = False,
 ) -> None:
     uid = f"cursor:{uuid}:q{idx}"
-    title = query.splitlines()[0][:120]
-    if total > 1:
-        content = f"[对话 {uuid[:8]} · 第 {idx + 1}/{total} 问]\n{query}"
-    else:
-        content = query
-    conn.execute("DELETE FROM events WHERE uid=?", (uid,))
-    db.insert_event(
+    archive = cursor_archive.turn_path(uuid, idx)
+    title = (query.splitlines()[0].strip() if query else "")[:120] or cursor_archive.turn_filename(idx)
+    content = str(archive.resolve())
+    meta = json.dumps(
+        {
+            "ts_estimated": bool(ts_estimated),
+            "session_id": uuid,
+            "query_index": idx,
+            "archive_path": cursor_archive.turn_relpath(uuid, idx),
+            "has_reply": bool(reply.strip()),
+        },
+        ensure_ascii=False,
+    )
+    db.upsert_event(
         conn,
         uid=uid,
         ts=ts,
@@ -156,7 +182,7 @@ def _upsert_query_event(
         project=project,
         title=title,
         content=content,
-        meta=json.dumps({"transcript": uuid, "query_index": idx}, ensure_ascii=False),
+        meta=meta,
     )
 
 
@@ -168,7 +194,7 @@ def collect(
     roots=None,
 ) -> int:
     cfg = config.load_config()
-    base = Path(os.path.expanduser(cfg["cursor_projects_dir"]))
+    base = Path(cfg["cursor_projects_dir"]).expanduser()
     if not base.exists():
         return 0
 
@@ -179,41 +205,65 @@ def collect(
     for uuid, jsonl in _iter_transcripts(base).items():
         try:
             data = jsonl.read_bytes()
-            file_mtime = int(jsonl.stat().st_mtime)
         except OSError:
             continue
 
         sig = hashlib.sha256(data).hexdigest()
         state_key = f"cursor_sig:{uuid}"
-        if not backfill and db.get_state(conn, state_key) == sig:
+        turns = cursor_archive.parse_transcript_turns(jsonl)
+        max_q_ts = max((int(t["ts"]) for t in turns), default=0)
+        project = _clean_project(jsonl.parts[len(base.parts)])
+        meta_file = cursor_archive.archive_root() / uuid / "meta.json"
+        archive_ver = 0
+        if meta_file.is_file():
+            try:
+                archive_ver = int(
+                    json.loads(meta_file.read_text(encoding="utf-8")).get(
+                        "archive_version", 0
+                    )
+                )
+            except (OSError, json.JSONDecodeError, TypeError, ValueError):
+                archive_ver = 0
+        needs_archive = bool(turns) and (
+            archive_ver < cursor_archive.ARCHIVE_VERSION
+            or not meta_file.exists()
+            or meta_file.stat().st_mtime < jsonl.stat().st_mtime
+        )
+        if needs_archive:
+            cursor_archive.archive_session(uuid, jsonl, project=project)
+        stale_ts = (
+            not backfill
+            and not needs_archive
+            and db.get_state(conn, state_key) == sig
+            and max_q_ts <= _max_event_ts(conn, uuid) + 90
+        )
+        if stale_ts:
             continue
 
-        queries = _parse_transcript(jsonl)
-        project = _clean_project(jsonl.parts[len(base.parts)])
-
-        # 移除旧版「整段对话一条」的记录
         conn.execute("DELETE FROM events WHERE uid=?", (f"cursor:{uuid}",))
 
-        if not queries:
+        if not turns:
             db.set_state(conn, state_key, sig)
             continue
 
-        for i, q in enumerate(queries):
-            ts = _resolve_query_ts(queries, i, file_mtime)
+        for t in turns:
+            i = int(t["query_index"])
+            ts = int(t["ts"])
             if since_ts and ts < since_ts:
                 continue
             _upsert_query_event(
                 conn,
                 uuid=uuid,
                 idx=i,
-                total=len(queries),
-                query=q["query"],
+                total=len(turns),
+                query=t["query"],
+                reply=t.get("reply") or "",
                 ts=ts,
                 project=project,
+                ts_estimated=bool(t.get("ts_estimated")),
             )
             new += 1
 
-        # 对话被编辑变短时，清理多余的旧问题条目
         stale = conn.execute(
             "SELECT uid FROM events WHERE source='cursor' AND uid LIKE ?",
             (f"cursor:{uuid}:q%",),
@@ -223,7 +273,7 @@ def collect(
                 idx = int(row["uid"].rsplit(":q", 1)[-1])
             except ValueError:
                 continue
-            if idx >= len(queries):
+            if idx >= len(turns):
                 conn.execute("DELETE FROM events WHERE uid=?", (row["uid"],))
 
         db.set_state(conn, state_key, sig)

@@ -1,10 +1,8 @@
----
-description: 个人开发/存储/行为规范（由 QR本地知识库 生成，勿手改本文件）
-globs:
-alwaysApply: true
----
+# AGENTS.md
 
-以下是用户的**全局**个人规范；本项目另有 `10-project.mdc` 约定。
+> 由 QR 知识库生成：`00-personal-standards.mdc`（全局）+ `10-project.mdc`（本项目）。
+
+## 全局个人规范
 
 # 个人开发 / 存储 / 行为规范
 
@@ -58,3 +56,27 @@ alwaysApply: true
 - 交互：可点击项用 `.tl-link` / `btn` 体系；危险操作用 `--rose` 并二次确认；加载与空状态需有明确文案，避免空白页。
 - 新页面或改版先对照本节的布局与组件习惯，再写项目内 UI；**项目特有**的视觉（品牌色、插画）写在各项目 `PROJECT.md`，不写入本节。
 
+## 本项目约定
+
+# 项目约定 · qr
+
+> QR 本地知识库程序仓库。全局规范见 `qr standards` / `00-personal-standards.mdc`。
+
+## 用途
+纯本地个人知识库：行为采集、时间线、向量检索/RAG、规范与 Cursor 规则、Web 控制台（8765）。
+
+## 技术栈与结构
+- Python 3.12+，包名 `qr`，入口 `qr/cli.py`
+- 核心模块：`collectors/`、`indexer.py`、`query.py`、`web.py`、`governance.py`、`prompt_guides.py`
+- 运行数据仅在 `~/.qr`；业务代码仅在 `~/QR/dev/qr`
+
+## 开发约定
+- 修改后：`pip install -e ~/QR/dev/qr` 与 `qr web --restart`
+- 测试：`python3 -m unittest discover -s tests`
+- 自检：`qr doctor`；勿恢复误删 `qr.db` 的沿革逻辑
+- 索引默认仅 `~/QR`（见 `config.json` → `index_roots`）
+
+## AI 协作（本项目）
+- 先读 `README.md`、`docs/USE_CASES.md`
+- 最小 diff；不提交除非用户要求
+- 时间线 cursor 事件按 file 打开归档路径，不用弹窗

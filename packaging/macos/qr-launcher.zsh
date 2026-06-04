@@ -27,7 +27,7 @@ if ! _up; then
   elif [[ -n "$QR_BIN" && -x "$QR_BIN" ]]; then
     /usr/bin/nohup "$QR_BIN" web --port "$PORT" >>"$HOME/.qr/logs/web.log" 2>&1 &
   else
-    /usr/bin/osascript -e 'display alert "QR本地知识库未安装" message "找不到 qr 命令。请在终端执行：conda activate qr（或 kb）后 pip install -e ~/Projects/qr，并运行 qr web --install"'
+    /usr/bin/osascript -e 'display alert "QR本地知识库未安装" message "找不到 qr 命令。请在终端执行：conda activate qr 后 pip install -e ~/QR/dev/qr，并运行 qr web --install"'
     exit 1
   fi
   for _ in {1..40}; do

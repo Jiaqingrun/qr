@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -7,11 +8,13 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from . import config
+from . import config, db
 
 _DEFAULT_CATEGORIES = ("dev", "mobile", "experiments", "tools", "archive")
 _PROTECTED_PROJECTS = frozenset({"dev/qr"})
 _DELETE_CONFIRM_PHRASE = "永久删除"
+# 工作区目录存在但不应出现在项目列表（导出镜像等）
+_LIST_EXCLUDE_IDS = frozenset({"dev/qr-export"})
 
 
 def workspace_root(cfg: dict[str, Any] | None = None) -> Path:
@@ -118,6 +121,118 @@ def is_under_workspace(path: Path, cfg: dict[str, Any] | None = None) -> bool:
         return True
     except ValueError:
         return False
+
+
+def _excluded_list_roots(cfg: dict[str, Any] | None = None) -> list[Path]:
+    """项目标签/UI 中应屏蔽的本机文档等目录（非 ~/QR 工作区）。"""
+    cfg = cfg or config.load_config()
+    home = Path.home().resolve()
+    roots: list[Path] = []
+    for name in ("Documents", "Desktop", "Downloads", "Templates", ".Trash"):
+        p = home / name
+        if p.is_dir():
+            roots.append(p.resolve())
+    for base in config.expand_paths(cfg.get("scatter_roots") or []):
+        try:
+            br = base.resolve()
+        except OSError:
+            continue
+        if br == workspace_root(cfg).resolve():
+            continue
+        if br in roots:
+            continue
+        if br.name in ("Documents", "Desktop", "Downloads"):
+            roots.append(br)
+    return roots
+
+
+def is_excluded_path(path: Path, cfg: dict[str, Any] | None = None) -> bool:
+    """路径是否位于应屏蔽的文档/散落目录下。"""
+    try:
+        resolved = path.expanduser().resolve()
+    except OSError:
+        return False
+    for root in _excluded_list_roots(cfg):
+        try:
+            resolved.relative_to(root)
+            return True
+        except ValueError:
+            continue
+    return False
+
+
+def is_listable_project_id(project_id: str, cfg: dict[str, Any] | None = None) -> bool:
+    """是否为用户工作区项目（~/QR/<分类>/<名>），用于下拉/标签列表。"""
+    cfg = cfg or config.load_config()
+    pid = (project_id or "").strip().strip("/")
+    if not pid or pid.startswith("cursor-"):
+        return False
+    if pid in _LIST_EXCLUDE_IDS:
+        return False
+    cat, name = parse_project_id(pid)
+    if not cat or not name:
+        return False
+    if cat not in categories(cfg):
+        return False
+    pdir = resolve_project_dir(pid, cfg)
+    if not pdir or not pdir.is_dir():
+        return False
+    return is_under_workspace(pdir, cfg)
+
+
+def sanitize_display_project(project_id: str | None) -> str | None:
+    """API/UI 展示：非用户工作区项目不显示 project 标签。"""
+    pid = (project_id or "").strip()
+    if not pid:
+        return None
+    return pid if is_listable_project_id(pid) else None
+
+
+def is_searchable_content(path: str | None, doc_project: str | None = None) -> bool:
+    """检索是否保留该文档块（仅用户项目 + ~/.qr 运行时元数据 + ~/QR 路径）。"""
+    dp = (doc_project or "").strip()
+    if dp and is_listable_project_id(dp):
+        return True
+    if dp in ("qr-config", "qr-standards"):
+        return True
+    path_s = (path or "").replace("\\", "/")
+    if path_s and ("/.qr/" in path_s or path_s.startswith(str(config.QR_HOME))):
+        return True
+    if path_s:
+        try:
+            p = Path(path_s).expanduser().resolve()
+            if is_under_workspace(p):
+                return True
+            try:
+                p.relative_to(config.QR_HOME.resolve())
+                return True
+            except ValueError:
+                pass
+        except OSError:
+            pass
+    return False
+
+
+def event_row_visible(source: str, project: str | None) -> bool:
+    """时间线是否保留该事件（屏蔽非工作区的 file 类索引噪声）。"""
+    src = (source or "").strip()
+    pid = (project or "").strip()
+    if not pid:
+        return True
+    if is_listable_project_id(pid):
+        return True
+    if src == "file":
+        return False
+    return True
+
+
+def events_project_sql_filter() -> tuple[str, list[str]]:
+    """时间线 SQL 条件：file 事件仅保留工作区项目。"""
+    allowed = list_projects_grouped(500)["projects"]
+    if not allowed:
+        return "(source != 'file' OR project IS NULL)", []
+    ph = ",".join("?" * len(allowed))
+    return f"(source != 'file' OR project IS NULL OR project IN ({ph}))", allowed
 
 
 def _is_project_dir(d: Path) -> bool:
@@ -235,6 +350,41 @@ def migrate_paths(
     return results
 
 
+def ensure_qr_repo_home(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
+    """确认知识库源码在 ~/QR/dev/qr，并清理 ~/Projects/qr 旧入口。"""
+    cfg = cfg or config.load_config()
+    root = workspace_root(cfg)
+    dest = root / "dev" / "qr"
+    if not dest.is_dir():
+        raise ValueError(f"知识库目录不存在: {dest}")
+    legacy_link = Path.home() / "Projects" / "qr"
+    removed_link = False
+    if legacy_link.is_symlink():
+        try:
+            target = legacy_link.resolve()
+            if target == dest.resolve():
+                legacy_link.unlink()
+                removed_link = True
+        except OSError:
+            pass
+    projects_readme = Path.home() / "Projects" / "README.md"
+    if not projects_readme.exists():
+        projects_readme.write_text(
+            "# 项目已迁至 QR 工作区\n\n"
+            "本机代码项目已统一放在 **`~/QR/<分类>/<项目名>`**。\n\n"
+            "- 知识库：`~/QR/dev/qr`\n"
+            "- 新建项目：`qr workspace new <名称> --category dev`\n"
+            "- 查看布局：`qr workspace status`\n\n"
+            "此目录不再用于存放新项目。\n",
+            encoding="utf-8",
+        )
+    return {
+        "project_id": "dev/qr",
+        "path": str(dest.resolve()),
+        "legacy_link_removed": removed_link,
+    }
+
+
 def apply_workspace_config(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     """将配置收敛为以 ~/QR 为唯一索引根。"""
     cfg = dict(cfg or config.load_config())
@@ -273,6 +423,10 @@ def create_project(
         f"# {proj}\n\n创建于 QR 工作区 `{cat}/{proj}`。\n",
         encoding="utf-8",
     )
+    from . import project_standards
+
+    pid = project_id(cat, proj)
+    project_standards.ensure_project_standards(dest, project_id=pid)
     return dest
 
 
@@ -311,6 +465,84 @@ def _resolve_project_dir_exact(project: str, cfg: dict[str, Any] | None = None) 
     return p if p.is_dir() else None
 
 
+def _cursor_projects_base(cfg: dict[str, Any] | None = None) -> Path:
+    cfg = cfg or config.load_config()
+    return config._expand(str(cfg.get("cursor_projects_dir", "~/.cursor/projects")))
+
+
+def _cursor_dir_slug(proj_dir: Path) -> str:
+    return str(proj_dir.resolve()).replace("/", "-").lstrip("-")
+
+
+def find_cursor_project_dirs(
+    proj_dir: Path | None,
+    name: str,
+    cfg: dict[str, Any] | None = None,
+) -> list[Path]:
+    """匹配 ~/.cursor/projects 下对应该工作区项目的目录。"""
+    base = _cursor_projects_base(cfg)
+    if not base.is_dir():
+        return []
+    found: list[Path] = []
+    seen: set[str] = set()
+    nl = name.lower()
+
+    def add(p: Path) -> None:
+        key = str(p.resolve())
+        if key not in seen and p.is_dir():
+            seen.add(key)
+            found.append(p)
+
+    if proj_dir and proj_dir.is_dir():
+        add(base / _cursor_dir_slug(proj_dir))
+        enc = str(proj_dir.resolve()).replace("/", "-").lstrip("-").lower()
+        for d in base.iterdir():
+            if d.is_dir() and enc and enc in d.name.lower():
+                add(d)
+    for d in base.iterdir():
+        if not d.is_dir():
+            continue
+        dn = d.name.lower()
+        if dn.endswith(f"-{nl}") or dn == nl or f"-{nl.replace('/', '-')}" in dn:
+            add(d)
+            continue
+        if proj_dir and nl in dn and str(proj_dir.resolve()).replace("/", "-").lower() in dn:
+            add(d)
+    return found
+
+
+def _count_cursor_transcripts(cursor_dirs: list[Path]) -> int:
+    n = 0
+    for root in cursor_dirs:
+        n += len(list(root.glob("agent-transcripts/*/*.jsonl")))
+    return n
+
+
+def _purge_cursor_workspace(
+    conn: sqlite3.Connection,
+    cursor_dirs: list[Path],
+) -> dict[str, int]:
+    """删除 Cursor 项目目录与转录文件；不删 events / 引导语表。"""
+    from . import db
+
+    stats = {"cursor_dirs": 0, "cursor_transcripts": 0, "cursor_state_keys": 0}
+    for root in cursor_dirs:
+        uuids: set[str] = set()
+        for jsonl in root.glob("agent-transcripts/*/*.jsonl"):
+            uuids.add(jsonl.stem)
+            stats["cursor_transcripts"] += 1
+        for uid in uuids:
+            if db.get_state(conn, f"cursor_sig:{uid}"):
+                conn.execute("DELETE FROM state WHERE key=?", (f"cursor_sig:{uid}",))
+                stats["cursor_state_keys"] += 1
+        try:
+            shutil.rmtree(root)
+            stats["cursor_dirs"] += 1
+        except OSError:
+            pass
+    return stats
+
+
 def _delete_scope(project: str, proj_dir: Path | None) -> tuple[str, str, str | None, str]:
     """返回 pid, name, path_like, cursor_proj。"""
     pid = project.strip()
@@ -333,6 +565,32 @@ def _doc_match_params(pid: str, cursor_proj: str, path_like: str | None) -> tupl
     if path_like:
         return (pid, cursor_proj, path_like)
     return (pid, cursor_proj)
+
+
+def _chat_session_ids_for_project(
+    conn: sqlite3.Connection, pid: str, name: str
+) -> list[int]:
+    """仅匹配与项目明确关联的问答会话，避免短项目名误删。"""
+    ids: set[int] = set()
+    for row in conn.execute(
+        "SELECT id FROM chat_sessions WHERE title LIKE ?",
+        (f"%{pid}%",),
+    ).fetchall():
+        ids.add(int(row["id"]))
+    for pat in (f'%"project": "{pid}"%', f'%"project":"{pid}"%'):
+        for row in conn.execute(
+            "SELECT DISTINCT session_id FROM chat_messages "
+            "WHERE hits IS NOT NULL AND trim(hits) != '' AND hits LIKE ?",
+            (pat,),
+        ).fetchall():
+            ids.add(int(row["session_id"]))
+    if len(name) >= 5:
+        for row in conn.execute(
+            "SELECT id FROM chat_sessions WHERE title LIKE ?",
+            (f"%{name}%",),
+        ).fetchall():
+            ids.add(int(row["id"]))
+    return sorted(ids)
 
 
 def preview_project_delete(
@@ -379,15 +637,21 @@ def preview_project_delete(
                 "OR lower(project)=lower(?)",
                 (pid, cursor_proj),
             ).fetchone()["c"]
-        chats = conn.execute(
-            "SELECT COUNT(*) c FROM chat_sessions WHERE title LIKE ? OR title LIKE ?",
-            (f"%{name}%", f"%{pid}%"),
-        ).fetchone()["c"]
+        chats = len(_chat_session_ids_for_project(conn, pid, name))
 
     fact_list = facts.list_facts(pid)
     disk_bytes = 0
     if proj_dir and proj_dir.is_dir():
         disk_bytes = sum(f.stat().st_size for f in proj_dir.rglob("*") if f.is_file())
+
+    cursor_dirs = find_cursor_project_dirs(proj_dir, name, cfg)
+    cursor_transcripts = _count_cursor_transcripts(cursor_dirs)
+    cursor_disk = 0
+    for d in cursor_dirs:
+        try:
+            cursor_disk += sum(f.stat().st_size for f in d.rglob("*") if f.is_file())
+        except OSError:
+            pass
 
     return {
         "project": pid,
@@ -395,14 +659,22 @@ def preview_project_delete(
         "index_only": proj_dir is None,
         "protected": False,
         "confirm_phrase": _DELETE_CONFIRM_PHRASE,
+        "retain": {
+            "timeline_events": int(events),
+            "prompt_guides": True,
+        },
         "counts": {
             "documents": int(docs),
             "chunks": int(chunks),
             "events": int(events),
             "chat_sessions": int(chats),
             "facts": len(fact_list),
+            "cursor_dirs": len(cursor_dirs),
+            "cursor_transcripts": cursor_transcripts,
         },
         "disk_bytes": disk_bytes,
+        "cursor_disk_bytes": cursor_disk,
+        "cursor_paths": [str(p) for p in cursor_dirs],
     }
 
 
@@ -427,6 +699,100 @@ def _purge_facts_for_project(pid: str, name: str) -> int:
     return removed
 
 
+def _record_project_delete_event(
+    conn: sqlite3.Connection,
+    *,
+    pid: str,
+    preview: dict[str, Any],
+    stats: dict[str, Any],
+    via: str = "web",
+) -> None:
+    from . import ops_timeline
+
+    ops_timeline.log_project_delete(
+        conn, pid=pid, preview=preview, stats=stats, via=via,
+    )
+
+
+def verify_project_removed(
+    project: str,
+    cfg: dict[str, Any] | None = None,
+    *,
+    strict_id: bool = False,
+) -> dict[str, Any]:
+    """核对项目是否已从工作区、索引、Cursor 转录等位置清除。"""
+    cfg = cfg or config.load_config()
+    pid = project.strip() if strict_id else normalize_project_id(project, cfg)
+    proj_dir = _resolve_project_dir_exact(pid, cfg) if strict_id else resolve_project_dir(pid, cfg)
+    if not strict_id and proj_dir is None:
+        proj_dir = _resolve_project_dir_exact(pid, cfg)
+
+    pid_scoped, name, path_like, cursor_proj = _delete_scope(pid, proj_dir)
+    doc_clause = _doc_match_clause(path_like)
+    doc_params = _doc_match_params(pid_scoped, cursor_proj, path_like)
+    cursor_dirs = find_cursor_project_dirs(proj_dir, name, cfg)
+
+    checks: list[dict[str, Any]] = []
+
+    def add(item: str, ok: bool, detail: str, *, warn: bool = False) -> None:
+        checks.append({"item": item, "ok": ok, "detail": detail, "warn": warn})
+
+    if proj_dir and proj_dir.is_dir():
+        add("工作区项目目录", False, str(proj_dir.resolve()))
+    else:
+        hint = str(proj_dir.resolve()) if proj_dir else f"未在 ~/QR 解析到 {pid}"
+        add("工作区项目目录", True, f"不存在（{hint}）")
+
+    with db.session() as conn:
+        docs = conn.execute(
+            f"SELECT COUNT(*) c FROM documents WHERE {doc_clause}",
+            doc_params,
+        ).fetchone()["c"]
+        chunks = conn.execute(
+            f"SELECT COUNT(*) c FROM chunks WHERE doc_id IN ("
+            f"SELECT id FROM documents WHERE {doc_clause})",
+            doc_params,
+        ).fetchone()["c"]
+        chats = conn.execute(
+            "SELECT COUNT(*) c FROM chat_sessions WHERE title LIKE ? OR title LIKE ?",
+            (f"%{name}%", f"%{pid_scoped}%"),
+        ).fetchone()["c"]
+        ev = conn.execute(
+            "SELECT COUNT(*) c FROM events WHERE source='qr' AND title LIKE ?",
+            (f"%删除项目 {pid_scoped}%",),
+        ).fetchone()["c"]
+
+    from . import facts
+
+    fact_n = len(facts.list_facts(pid_scoped))
+    transcript_n = _count_cursor_transcripts(cursor_dirs)
+
+    add("向量索引文档", docs == 0, f"剩余 {docs} 篇" if docs else "已清空")
+    add("向量块", chunks == 0, f"剩余 {chunks} 块" if chunks else "已清空")
+    add("Cursor 项目目录", len(cursor_dirs) == 0, (
+        "已移除" if not cursor_dirs else "仍存在: " + ", ".join(str(p) for p in cursor_dirs)
+    ))
+    add("Cursor 转录文件", transcript_n == 0, f"剩余 {transcript_n} 条" if transcript_n else "已清空")
+    add("本库问答会话", chats == 0, f"剩余 {chats} 条" if chats else "已清空")
+    add("稳定事实", fact_n == 0, f"剩余 {fact_n} 条" if fact_n else "已清空")
+    add(
+        "时间线删除记录",
+        ev > 0,
+        f"已有 {ev} 条" if ev else "尚无（删除后将自动写入）",
+        warn=ev == 0,
+    )
+
+    hard = [c for c in checks if not c.get("warn")]
+    clean = all(c["ok"] for c in hard)
+    return {
+        "project": pid_scoped,
+        "clean": clean,
+        "checks": checks,
+        "cursor_paths": [str(p) for p in cursor_dirs],
+        "workspace_path": str(proj_dir.resolve()) if proj_dir and proj_dir.is_dir() else None,
+    }
+
+
 def purge_project(
     project: str,
     *,
@@ -440,10 +806,10 @@ def purge_project(
 
     cfg = cfg or config.load_config()
     pid = project.strip() if strict_id else normalize_project_id(project, cfg)
-    if confirm.strip() != pid:
-        raise ValueError(f"确认名称不匹配，请输入 exactly: {pid}")
     if confirm_phrase.strip() != _DELETE_CONFIRM_PHRASE:
         raise ValueError(f"确认短语不正确，请输入: {_DELETE_CONFIRM_PHRASE}")
+    if confirm.strip() and confirm.strip() != pid:
+        raise ValueError(f"确认名称不匹配，请输入: {pid}")
 
     preview = preview_project_delete(pid, cfg, strict_id=strict_id)
     proj_dir = Path(preview["path"]) if preview.get("path") else None
@@ -479,29 +845,27 @@ def purge_project(
                 f"DELETE FROM documents WHERE id IN ({placeholders})", doc_ids,
             )
 
-        if path_like:
-            ev_cur = conn.execute(
-                "DELETE FROM events WHERE lower(project)=lower(?) "
-                "OR lower(project)=lower(?) OR title LIKE ? OR content LIKE ?",
-                (pid, cursor_proj, path_like, f"%{name}%"),
-            )
-        else:
-            ev_cur = conn.execute(
-                "DELETE FROM events WHERE lower(project)=lower(?) "
-                "OR lower(project)=lower(?)",
-                (pid, cursor_proj),
-            )
-        stats["events_deleted"] = ev_cur.rowcount
+        # 时间线 events 与引导语库保留（用户要求）
+        stats["events_deleted"] = 0
+        stats["events_retained"] = preview["counts"].get("events", 0)
 
-        chat_rows = conn.execute(
-            "SELECT id FROM chat_sessions WHERE title LIKE ? OR title LIKE ?",
-            (f"%{name}%", f"%{pid}%"),
-        ).fetchall()
-        for row in chat_rows:
-            conn.execute("DELETE FROM chat_sessions WHERE id=?", (row["id"],))
-        stats["chat_sessions_deleted"] = len(chat_rows)
+        chat_ids = _chat_session_ids_for_project(conn, pid, name)
+        for sid in chat_ids:
+            conn.execute("DELETE FROM chat_sessions WHERE id=?", (sid,))
+        stats["chat_sessions_deleted"] = len(chat_ids)
 
         db.rebuild_fts(conn)
+        cursor_dirs = [Path(p) for p in preview.get("cursor_paths") or []]
+        if not cursor_dirs and proj_dir:
+            cursor_dirs = find_cursor_project_dirs(proj_dir, name, cfg)
+        stats.update(_purge_cursor_workspace(conn, cursor_dirs))
+        _record_project_delete_event(
+            conn,
+            pid=pid,
+            preview=preview,
+            stats=stats,
+            via="web",
+        )
 
     stats["facts_removed"] = _purge_facts_for_project(pid, name)
 
@@ -514,6 +878,7 @@ def purge_project(
         "project": pid,
         "path": str(proj_dir) if proj_dir else None,
         "stats": stats,
+        "verify": verify_project_removed(pid, cfg, strict_id=strict_id),
     }
 
 
@@ -573,43 +938,45 @@ def list_junk_project_ids(cfg: dict[str, Any] | None = None) -> list[str]:
 
 
 def list_projects_grouped(limit: int = 200) -> dict[str, Any]:
-    """从 documents 表汇总分类与项目（project 字段为 category/name）。"""
+    """仅列出 ~/QR 工作区下用户创建的项目（不含索引幽灵、Documents 等）。"""
     from . import db
 
     cfg = config.load_config()
+    root = workspace_root(cfg)
+    doc_counts: dict[str, int] = {}
     with db.session() as conn:
         rows = conn.execute(
             "SELECT project, COUNT(*) c FROM documents WHERE project IS NOT NULL "
-            "GROUP BY project ORDER BY c DESC LIMIT ?",
-            (limit,),
+            "GROUP BY project",
         ).fetchall()
+        for r in rows:
+            doc_counts[r["project"]] = int(r["c"])
+
     by_cat: dict[str, list[dict[str, Any]]] = {}
     flat: list[str] = []
-    for r in rows:
-        pid = r["project"]
-        if not pid or pid.startswith("cursor-"):
-            continue
-        flat.append(pid)
-        cat, name = parse_project_id(pid)
-        cat = cat or "legacy"
-        by_cat.setdefault(cat, []).append(
-            {"id": pid, "name": name, "category": cat, "docs": int(r["c"])}
-        )
-    root = workspace_root(cfg)
     for cat in categories(cfg):
         cat_dir = root / cat
         if not cat_dir.is_dir():
             continue
-        for proj in cat_dir.iterdir():
+        for proj in sorted(cat_dir.iterdir()):
             if not proj.is_dir() or proj.name.startswith("."):
                 continue
             pid = project_id(cat, proj.name)
-            if pid in flat:
+            if not is_listable_project_id(pid, cfg):
                 continue
             flat.append(pid)
             by_cat.setdefault(cat, []).append(
-                {"id": pid, "name": proj.name, "category": cat, "docs": 0}
+                {
+                    "id": pid,
+                    "name": proj.name,
+                    "category": cat,
+                    "docs": doc_counts.get(pid, 0),
+                }
             )
+            if len(flat) >= limit:
+                break
+        if len(flat) >= limit:
+            break
 
     return {
         "categories": sorted(by_cat.keys()),

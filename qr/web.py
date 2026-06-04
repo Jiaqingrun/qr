@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import datetime
 import json
+import logging
 import subprocess
+import threading
 import time
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
@@ -23,14 +25,23 @@ from . import (
     eval_suite,
     export,
     facts,
+    prompt_guides,
     governance,
+    standards_changelog,
+    health,
     indexer,
+    models,
     links,
+    ops_timeline,
+    project_brief,
     project_panel,
+    project_relations,
+    cursor_archive,
     query,
     summary,
     usage,
     workspace,
+    timeutil,
 )
 from .collectors import notes
 from .ollama_client import Ollama, OllamaError
@@ -38,11 +49,69 @@ from .ollama_client import Ollama, OllamaError
 STATIC = Path(__file__).resolve().parent / "static"
 
 app = FastAPI(title="QR本地知识库")
+_log = logging.getLogger(__name__)
+_db_ready = threading.Event()
+
+
+@app.on_event("startup")
+def _startup_init_db() -> None:
+    def _init() -> None:
+        try:
+            db.init_db_retry(retries=90, delay=0.5)
+            _db_ready.set()
+        except Exception as exc:
+            _log.error("Web 数据库初始化失败: %s", exc)
+
+    threading.Thread(target=_init, daemon=True).start()
+
+
+@app.middleware("http")
+async def ops_timeline_middleware(request: Request, call_next):
+    """将 Web 端写操作实时记入时间线（source=qr）。"""
+    method = request.method.upper()
+    path = request.url.path
+    body_bytes = b""
+    if method in ("POST", "PUT", "DELETE", "PATCH") and path.startswith("/api/"):
+        body_bytes = await request.body()
+
+        async def receive():
+            return {"type": "http.request", "body": body_bytes, "more_body": False}
+
+        request = Request(request.scope, receive)
+
+    response = await call_next(request)
+
+    if method not in ("POST", "PUT", "DELETE", "PATCH") or not path.startswith("/api/"):
+        return response
+    if not ops_timeline.should_log_http(method, path, response.status_code):
+        return response
+
+    try:
+        payload = json.loads(body_bytes.decode("utf-8")) if body_bytes else {}
+        if not isinstance(payload, dict):
+            payload = {}
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        payload = {}
+
+    query = {k: str(v) for k, v in request.query_params.items()}
+    described = ops_timeline.describe_http(method, path, payload, query)
+    if described:
+        action, title, content, project = described
+        ops_timeline.log_safe(
+            action=action,
+            title=title,
+            content=content,
+            project=project,
+            via="web",
+            extra={"path": path, "method": method},
+        )
+    return response
 
 
 class AskBody(BaseModel):
     question: str
     k: int = 6
+    model: str | None = None
     deep: bool = False
     web: bool = False
     session_id: int | None = None
@@ -97,29 +166,137 @@ class EvalCaseBody(BaseModel):
     negative: bool = False
 
 
+class DeleteProjectBody(BaseModel):
+    project: str
+    confirm_phrase: str
+    confirm: str | None = None
+
+
+class ProjectApproveBody(BaseModel):
+    project: str
+    approved: bool = True
+
+
+class ProjectLinkBody(BaseModel):
+    from_project: str
+    to_project: str
+    link_type: str = "related"
+    strength: int = 60
+    reason: str = ""
+    evidence: list[str] | None = None
+    pinned: bool = True
+
+
+class ProjectSuiteBody(BaseModel):
+    name: str
+    description: str = ""
+    role: str = ""
+    color: str = ""
+
+
+class ProjectSuiteUpdateBody(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    role: str | None = None
+    color: str | None = None
+    sort_order: int | None = None
+
+
+class ProjectSuiteMembersBody(BaseModel):
+    project_ids: list[str]
+
+
+class ProjectMetaBody(BaseModel):
+    project: str
+    role: str = ""
+    note: str = ""
+
+
+class ProjectInferBody(BaseModel):
+    days: int = 30
+
+
+class NotifyBody(BaseModel):
+    title: str
+    body: str = ""
+
+
 @app.get("/")
 def index():
     return FileResponse(STATIC / "index.html")
 
 
+@app.get("/api/cursor/turn/{session_id}/{qidx}")
+def api_cursor_turn(session_id: str, qidx: int):
+    data = cursor_archive.read_turn(session_id, qidx)
+    if data is None:
+        return JSONResponse({"error": "对话归档不存在，请运行 qr ingest --source cursor"}, status_code=404)
+    return data
+
+
 @app.get("/api/status")
 def status():
-    db.init_db()
-    with db.session() as conn:
-        ev = {r["source"]: r["c"] for r in conn.execute(
-            "SELECT source, COUNT(*) c FROM events GROUP BY source").fetchall()}
-        docs = conn.execute("SELECT COUNT(*) c FROM documents").fetchone()["c"]
-        chunks = conn.execute("SELECT COUNT(*) c FROM chunks").fetchone()["c"]
-        summ = conn.execute("SELECT COUNT(*) c FROM summaries").fetchone()["c"]
-        chats = conn.execute("SELECT COUNT(*) c FROM chat_sessions").fetchone()["c"]
-    backend = "sqlite-vec" if db.vec_available() else "numpy"
     try:
-        models = Ollama().health()
+        db.init_db_retry(retries=5, delay=0.2)
+    except Exception:
+        pass
+    try:
+        with db.session() as conn:
+            pg = prompt_guides.stats(conn)
+            dash = health.status_dashboard(conn)
+    except Exception as exc:
+        return JSONResponse(
+            {
+                "error": str(exc),
+                "health_ok": False,
+                "pillars": [],
+                "summary": "状态加载失败",
+            },
+            status_code=500,
+        )
+    try:
+        ollama_tags = Ollama().health()
     except OllamaError:
-        models = []
-    return {"events": ev, "documents": docs, "chunks": chunks,
-            "summaries": summ, "chats": chats, "backend": backend, "models": models,
-            "qr_home": str(config.QR_HOME)}
+        ollama_tags = []
+    return {
+        "events": dash["events"],
+        "event_total": dash["event_total"],
+        "documents": dash["documents"],
+        "chunks": dash["chunks"],
+        "summaries": dash["summaries"],
+        "chats": dash["chats"],
+        "projects": dash["projects"],
+        "usage_sessions": dash["usage_sessions"],
+        "standards_versions": dash["standards_versions"],
+        "prompt_guides": pg,
+        "backend": dash["backend"],
+        "models": ollama_tags,
+        "ollama_ok": dash["ollama_ok"],
+        "ollama_models": dash["ollama_models"],
+        "pillars": dash["pillars"],
+        "summary": dash["summary"],
+        "schedule_loaded": dash["schedule_loaded"],
+        "schedule_total": dash["schedule_total"],
+        "qr_home": str(config.QR_HOME),
+        "health_ok": dash["health_ok"],
+        "health_issues": dash["health_issues"],
+        "health_ok_items": dash["health_ok_items"],
+        "default_ask_model": models.default_ask_model(),
+        "features": {"prompt_guides": True},
+    }
+
+
+@app.get("/api/ask/models")
+def api_ask_models():
+    """问答可选模型目录（含 ollama 是否已安装）。"""
+    try:
+        installed = Ollama().health()
+    except OllamaError:
+        installed = []
+    return {
+        "default": models.default_ask_model(),
+        "models": models.list_ask_models_with_status(installed),
+    }
 
 
 class OpenBody(BaseModel):
@@ -128,17 +305,25 @@ class OpenBody(BaseModel):
 
 def _parse_day(s: str) -> datetime.datetime:
     try:
-        return datetime.datetime.strptime(s, "%Y-%m-%d")
+        return timeutil.parse_day(s)
     except ValueError as e:
         raise ValueError("日期格式应为 YYYY-MM-DD") from e
 
 
 def _day_start(day: datetime.datetime) -> int:
-    return int(time.mktime(day.timetuple()))
+    return timeutil.day_start_local(day)
 
 
 def _day_end_exclusive(day: datetime.datetime) -> int:
-    return int(time.mktime((day + datetime.timedelta(days=1)).timetuple()))
+    return timeutil.day_end_exclusive_local(day)
+
+
+_EVENT_ORDER_ACTIVITY = (
+    "CASE source "
+    "WHEN 'note' THEN 0 WHEN 'qr' THEN 0 WHEN 'cursor' THEN 1 WHEN 'shell' THEN 2 "
+    "WHEN 'git' THEN 3 WHEN 'file' THEN 4 ELSE 5 END, "
+    "ts DESC, id DESC"
+)
 
 
 @app.get("/api/events")
@@ -149,8 +334,8 @@ def events(
     date: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
+    sort: str = "time",
 ):
-    db.init_db()
     limit = max(1, min(limit, 100))
     page = max(1, page)
 
@@ -185,6 +370,10 @@ def events(
     except ValueError as e:
         return JSONResponse({"error": str(e)}, status_code=400)
 
+    proj_cond, proj_args = workspace.events_project_sql_filter()
+    where.append(proj_cond)
+    args.extend(proj_args)
+
     clause = (" WHERE " + " AND ".join(where)) if where else ""
     with db.session() as conn:
         total = conn.execute(f"SELECT COUNT(*) c FROM events{clause}", args).fetchone()["c"]
@@ -193,24 +382,51 @@ def events(
     page = min(page, pages)
     offset = (page - 1) * limit
 
+    order = _EVENT_ORDER_ACTIVITY if sort == "activity" else "ts DESC, id DESC"
     with db.session() as conn:
         rows = conn.execute(
-            f"SELECT ts, source, project, title, content FROM events{clause} "
-            f"ORDER BY ts DESC, id DESC LIMIT ? OFFSET ?",
+            f"SELECT uid, ts, source, project, title, content, meta FROM events{clause} "
+            f"ORDER BY {order} LIMIT ? OFFSET ?",
             args + [limit, offset],
         ).fetchall()
 
     out = []
     for r in rows:
+        if not workspace.event_row_visible(r["source"], r["project"]):
+            continue
+        ts_estimated = False
+        has_reply = False
+        if r["meta"]:
+            try:
+                meta_obj = json.loads(r["meta"])
+                ts_estimated = bool(meta_obj.get("ts_estimated"))
+                has_reply = bool(meta_obj.get("has_reply"))
+            except json.JSONDecodeError:
+                meta_obj = {}
+        else:
+            meta_obj = {}
+        tlabel = timeutil.format_local(r["ts"])
+        if ts_estimated:
+            tlabel = f"约 {tlabel}"
         item = {
+            "uid": r["uid"],
             "ts": r["ts"],
-            "time": time.strftime("%Y-%m-%d %H:%M", time.localtime(r["ts"])),
+            "time": tlabel,
+            "ts_estimated": ts_estimated,
             "source": r["source"],
-            "project": r["project"],
+            "project": workspace.sanitize_display_project(r["project"]),
             "title": r["title"],
             "content": r["content"],
+            "has_reply": has_reply,
         }
-        link = links.event_link(r["source"], r["title"], r["content"], r["project"])
+        link = links.event_link(
+            r["source"],
+            r["title"],
+            r["content"],
+            r["project"],
+            uid=r["uid"],
+            meta=r["meta"],
+        )
         if link:
             item["link"] = link
         out.append(item)
@@ -225,6 +441,7 @@ def events(
         "date_from": date_from,
         "date_to": date_to,
         "source": source,
+        "sort": sort,
     }
 
 
@@ -290,19 +507,38 @@ def api_project_delete_preview(project: str):
 
 
 @app.post("/api/workspace/project/delete")
-def api_project_delete(body: DeleteProjectBody):
+def api_project_delete(req: DeleteProjectBody):
     try:
         return workspace.purge_project(
-            body.project.strip(),
-            confirm=body.confirm,
-            confirm_phrase=body.confirm_phrase,
+            req.project.strip(),
+            confirm=(req.confirm or req.project).strip(),
+            confirm_phrase=req.confirm_phrase,
         )
     except ValueError as e:
         return JSONResponse({"error": str(e)}, status_code=400)
 
 
-def _finish_ask(body: AskBody, answer: str, hits, web_results, sid: int):
+@app.get("/api/workspace/project/verify")
+def api_project_verify(project: str):
+    if not project.strip():
+        return JSONResponse({"error": "缺少 project 参数"}, status_code=400)
+    try:
+        return workspace.verify_project_removed(project.strip())
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+def _finish_ask(
+    body: AskBody,
+    answer: str,
+    hits,
+    web_results,
+    sid: int,
+    *,
+    model: str,
+):
     with db.session() as conn:
+        chat.update_session_model(conn, sid, model)
         chat.add_user_message(conn, sid, body.question.strip())
         msg_id = chat.add_assistant_message(
             conn, sid, answer, hits=hits or None, web=web_results or None,
@@ -316,7 +552,7 @@ def _finish_ask(body: AskBody, answer: str, hits, web_results, sid: int):
             question=body.question.strip(),
             k=body.k,
             web=body.web,
-            deep=body.deep,
+            model=model,
             hits=last_hits,
             web_results=last_web,
         )
@@ -334,29 +570,48 @@ def _finish_ask(body: AskBody, answer: str, hits, web_results, sid: int):
         "session": {
             "id": session["id"],
             "title": session["title"],
+            "model": session["model"],
+            "model_label": session["model_label"],
             "updated": time.strftime("%Y-%m-%d %H:%M", time.localtime(session["updated_at"])),
         },
+        "model": model,
     }
 
 
 @app.post("/api/ask")
 def api_ask(body: AskBody):
     db.init_db()
-    model = config.load_config()["deep_model"] if body.deep else None
     question = body.question.strip()
     if not question:
         return JSONResponse({"error": "问题不能为空"}, status_code=400)
 
     history = None
     sid = body.session_id
+    session_row = None
     with db.session() as conn:
         if sid:
-            session = chat.get_session(conn, sid)
-            if session is None:
+            session_row = chat.get_session(conn, sid)
+            if session_row is None:
                 return JSONResponse({"error": "对话不存在"}, status_code=404)
             history = chat.history_for_prompt(conn, sid)
         else:
-            sid = chat.create_session(conn, title=question, deep=body.deep, web=body.web)
+            try:
+                resolved = models.resolve_ask_model(body.model, deep_legacy=body.deep)
+            except ValueError as e:
+                return JSONResponse({"error": str(e)}, status_code=400)
+            sid = chat.create_session(
+                conn, title=question, model=resolved, web=body.web,
+            )
+            session_row = chat.get_session(conn, sid)
+
+    try:
+        model = models.resolve_ask_model(
+            body.model,
+            deep_legacy=body.deep,
+            session_model=session_row["model"] if session_row else None,
+        )
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
 
     if body.stream:
         import json as _json
@@ -379,7 +634,9 @@ def api_ask(body: AskBody):
                         yield f"data: {_json.dumps(ev, ensure_ascii=False)}\n\n"
                     elif ev["type"] == "done":
                         answer = ev.get("answer") or answer
-                        payload = _finish_ask(body, answer, hits, web_results, sid)
+                        payload = _finish_ask(
+                            body, answer, hits, web_results, sid, model=model,
+                        )
                         yield f"data: {_json.dumps({'type': 'done', **payload}, ensure_ascii=False)}\n\n"
             except OllamaError as e:
                 yield f"data: {_json.dumps({'type': 'error', 'error': str(e)}, ensure_ascii=False)}\n\n"
@@ -393,7 +650,7 @@ def api_ask(body: AskBody):
         )
     except OllamaError as e:
         return JSONResponse({"error": str(e)}, status_code=502)
-    return _finish_ask(body, answer, hits, web_results, sid)
+    return _finish_ask(body, answer, hits, web_results, sid, model=model)
 
 
 @app.get("/api/chats")
@@ -459,7 +716,7 @@ def api_chat_detail(sid: int):
             history=history,
             k=6,
             web=session["web"],
-            deep=session["deep"],
+            model=session["model"],
             hits=last_hits,
             web_results=last_web,
         )
@@ -469,6 +726,8 @@ def api_chat_detail(sid: int):
         "title": session["title"],
         "deep": session["deep"],
         "web": session["web"],
+        "model": session["model"],
+        "model_label": session["model_label"],
         "turns": turns,
         "context": ctx,
         "created": time.strftime("%Y-%m-%d %H:%M", time.localtime(session["created_at"])),
@@ -482,6 +741,7 @@ def api_chat_context(
     sid: int,
     question: str = "",
     k: int = 6,
+    model: str | None = None,
     deep: bool | None = None,
     web: bool | None = None,
 ):
@@ -497,14 +757,21 @@ def api_chat_context(
             if m["role"] == "assistant":
                 last_hits, last_web = m.get("hits"), m.get("web")
                 break
-    use_deep = session["deep"] if deep is None else deep
     use_web = session["web"] if web is None else web
+    try:
+        use_model = models.resolve_ask_model(
+            model,
+            deep_legacy=bool(deep) if deep is not None else False,
+            session_model=session["model"],
+        )
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
     ctx = context_meter.estimate_ask_context(
         history=history,
         question=question.strip(),
         k=max(1, min(k, 20)),
         web=use_web,
-        deep=use_deep,
+        model=use_model,
         hits=last_hits,
         web_results=last_web,
     )
@@ -524,7 +791,13 @@ def api_chat_delete(sid: int):
 def api_log(body: LogBody):
     db.init_db()
     with db.session() as conn:
-        notes.add_note(conn, body.text, tags=body.tags, kind=body.kind)
+        r = notes.add_note(conn, body.text, tags=body.tags, kind=body.kind)
+        if r == "cursor_echo":
+            return {
+                "ok": False,
+                "skipped": True,
+                "reason": "与 Cursor 对话重复，未写入笔记时间线（请查看来源 cursor）",
+            }
     return {"ok": True}
 
 
@@ -532,8 +805,9 @@ def api_log(body: LogBody):
 def api_ingest():
     db.init_db()
     with db.session() as conn:
-        res = collectors.run(conn, ["shell", "git", "files", "cursor"])
-    return {"ingested": res}
+        res = collectors.run(conn, ["shell", "git", "files", "cursor", "notes"])
+        deduped = notes.purge_cursor_duplicate_notes(conn)
+    return {"ingested": res, "notes_deduped": deduped}
 
 
 @app.post("/api/backfill")
@@ -673,6 +947,16 @@ def api_summary(body: SummaryBody):
 
 class ReviseBody(BaseModel):
     period: str = "week"
+    from_conversations: bool = False
+
+
+class ProjectStandardsBody(BaseModel):
+    content: str
+    note: str = "Web 编辑"
+
+
+class ProjectReviseBody(BaseModel):
+    period: str = "week"
 
 
 class ActivateStandardsBody(BaseModel):
@@ -680,16 +964,27 @@ class ActivateStandardsBody(BaseModel):
     note: str | None = None
 
 
-class DeleteProjectBody(BaseModel):
-    project: str
-    confirm: str
-    confirm_phrase: str
-
-
 @app.get("/api/standards")
 def api_standards():
     governance.ensure_standards()
     return {"content": governance.read_standards(), "versions": governance.list_versions()}
+
+
+@app.get("/api/standards/changelog")
+def api_standards_changelog(prune: bool = False):
+    """只读沿革；清理请用 POST /api/standards/changelog/prune。"""
+    governance.ensure_standards()
+    return standards_changelog.build_changelog(prune_identical=prune)
+
+
+@app.post("/api/standards/changelog/prune")
+def api_standards_changelog_prune():
+    """删除无效归档（测试备注、与上一版相同、无可展示 diff），并返回最新沿革。"""
+    governance.ensure_standards()
+    noise = governance.prune_noise_versions()
+    stats = governance.prune_redundant_versions()
+    changelog = standards_changelog.build_changelog(prune_identical=False)
+    return {**changelog, **stats, "pruned_noise": noise}
 
 
 @app.get("/api/standards/version/{vid}")
@@ -703,8 +998,75 @@ def api_standards_version(vid: int):
 @app.post("/api/standards/revise")
 def api_standards_revise(body: ReviseBody):
     try:
-        content = governance.revise_from_behavior(body.period)
-        return {"content": content, "versions": governance.list_versions()}
+        if body.from_conversations:
+            content, version_saved = governance.revise_from_conversations(body.period)
+        else:
+            content, version_saved = governance.revise_from_behavior(body.period)
+        return {
+            "content": content,
+            "version_saved": version_saved,
+            "versions": governance.list_versions(),
+        }
+    except OllamaError as e:
+        return JSONResponse({"error": str(e)}, status_code=502)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@app.get("/api/project/standards")
+def api_project_standards_get(project: str):
+    from . import project_standards, workspace
+
+    pid = workspace.normalize_project_id(project)
+    proj_dir = workspace.resolve_project_dir(pid)
+    if not proj_dir:
+        return JSONResponse({"error": "项目不存在"}, status_code=404)
+    project_standards.ensure_project_standards(proj_dir, project_id=pid)
+    body = project_standards.read_project_standards(proj_dir) or ""
+    return {
+        "project": pid,
+        "content": body,
+        "path": str((proj_dir / project_standards.PROJECT_MD).resolve()),
+        "versions": project_standards.list_project_versions(pid),
+    }
+
+
+@app.put("/api/project/standards")
+def api_project_standards_put(project: str, body: ProjectStandardsBody):
+    from . import project_standards, workspace
+
+    pid = workspace.normalize_project_id(project)
+    proj_dir = workspace.resolve_project_dir(pid)
+    if not proj_dir:
+        return JSONResponse({"error": "项目不存在"}, status_code=404)
+    try:
+        version_saved = project_standards.save_project_standards(
+            proj_dir, body.content, project_id=pid, note=body.note
+        )
+        governance.generate_rules(proj_dir)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    return {
+        "ok": True,
+        "project": pid,
+        "version_saved": version_saved,
+        "versions": project_standards.list_project_versions(pid),
+    }
+
+
+@app.post("/api/project/standards/revise")
+def api_project_standards_revise(project: str, body: ProjectReviseBody):
+    from . import project_standards
+
+    try:
+        content, version_saved = project_standards.revise_from_conversations(
+            project, body.period
+        )
+        return {
+            "content": content,
+            "version_saved": version_saved,
+            "project": workspace.normalize_project_id(project),
+        }
     except OllamaError as e:
         return JSONResponse({"error": str(e)}, status_code=502)
     except ValueError as e:
@@ -728,8 +1090,12 @@ def api_standards_activate(body: ActivateStandardsBody):
 
 @app.put("/api/standards")
 def api_standards_save(body: StandardsBody):
-    governance.save_standards(body.content, note=body.note)
-    return {"ok": True, "versions": governance.list_versions()}
+    version_saved = governance.save_standards(body.content, note=body.note)
+    return {
+        "ok": True,
+        "version_saved": version_saved,
+        "versions": governance.list_versions(),
+    }
 
 
 @app.get("/api/digest")
@@ -742,11 +1108,47 @@ def api_digest_notify(days: int = 1):
     return alerts.publish_digest(days=max(1, min(days, 30)), notify=True)
 
 
+@app.post("/api/notify")
+def api_notify(body: NotifyBody):
+    """macOS 系统通知（总结 / 规范 / 洞察等任务完成时由 Web 调用）。"""
+    ok = alerts.notify(body.title, body.body)
+    return {"notified": ok}
+
+
 @app.get("/api/project")
-def api_project_panel(project: str, days: int = 14):
+def api_project_panel(
+    project: str = "",
+    days: int = 14,
+    focus: bool = False,
+    auto: bool = True,
+):
+    """focus=1：顶栏项目简介（用途/功能/完成度）；否则为项目面板数据。"""
+    if focus:
+        if project.strip():
+            return project_brief.brief(project.strip(), prefer_detected=False)
+        if auto:
+            return project_brief.brief("", prefer_detected=True)
+        return JSONResponse({"error": "缺少 project 参数"}, status_code=400)
     if not project.strip():
         return JSONResponse({"error": "缺少 project 参数"}, status_code=400)
     return project_panel.panel(project.strip(), days=max(1, min(days, 90)))
+
+
+@app.get("/api/project/focus")
+def api_project_focus(project: str | None = None, auto: bool = True):
+    """兼容旧路径；与 /api/project?focus=1 相同。"""
+    if project and project.strip():
+        return project_brief.brief(project.strip(), prefer_detected=False)
+    if auto:
+        return project_brief.brief("", prefer_detected=True)
+    return JSONResponse({"error": "缺少 project 参数"}, status_code=400)
+
+
+@app.post("/api/project/approve")
+def api_project_approve(req: ProjectApproveBody):
+    if not req.project.strip():
+        return JSONResponse({"error": "缺少 project 参数"}, status_code=400)
+    return project_brief.set_completion_approved(req.project, req.approved)
 
 
 @app.get("/api/facts")
@@ -764,6 +1166,223 @@ def api_facts_add(body: FactBody):
 def api_facts_sync():
     synced = facts.sync_from_config()
     return {"ok": True, "facts": synced}
+
+
+class PromptTypeBody(BaseModel):
+    name: str
+    description: str = ""
+
+
+class PromptMergeBody(BaseModel):
+    fragment_ids: list[int]
+    title: str | None = None
+    type_id: int | None = None
+    type_name: str | None = None
+    project: str | None = None
+    tags: list[str] = []
+
+
+class PromptGuideBody(BaseModel):
+    title: str
+    body: str
+    type_id: int | None = None
+    type_name: str | None = None
+    project: str | None = None
+    tags: list[str] = []
+
+
+class PromptFragmentTypeBody(BaseModel):
+    type_id: int | None = None
+    type_name: str | None = None
+
+
+class PromptFragmentsDeleteBody(BaseModel):
+    fragment_ids: list[int]
+
+
+class PromptSessionsDeleteBody(BaseModel):
+    session_ids: list[str]
+
+
+@app.get("/api/prompts/stats")
+def api_prompts_stats():
+    db.init_db()
+    with db.session() as conn:
+        return prompt_guides.stats(conn)
+
+
+@app.get("/api/prompts/types")
+def api_prompts_types():
+    db.init_db()
+    with db.session() as conn:
+        return {"types": prompt_guides.list_types(conn)}
+
+
+@app.post("/api/prompts/types")
+def api_prompts_types_add(body: PromptTypeBody):
+    db.init_db()
+    with db.session() as conn:
+        tid = prompt_guides.get_or_create_type(
+            conn, body.name, description=body.description,
+        )
+        conn.commit()
+        types = prompt_guides.list_types(conn)
+        row = next((t for t in types if t["id"] == tid), None)
+        return {"ok": True, "type": row}
+
+
+@app.get("/api/prompts/fragments")
+def api_prompts_fragments(
+    type_id: int | None = None,
+    project: str | None = None,
+    limit: int = 200,
+):
+    db.init_db()
+    with db.session() as conn:
+        return {
+            "fragments": prompt_guides.list_fragments(
+                conn, inbox_only=True, type_id=type_id, project=project or None,
+                limit=max(1, min(limit, 500)),
+            ),
+        }
+
+
+@app.get("/api/prompts/inbox-groups")
+def api_prompts_inbox_groups(
+    type_id: int | None = None,
+    project: str | None = None,
+    sessions: str = "",
+    limit: int = 500,
+):
+    db.init_db()
+    session_ids = [s.strip() for s in sessions.split(",") if s.strip()] or None
+    with db.session() as conn:
+        return prompt_guides.list_inbox_groups(
+            conn,
+            type_id=type_id,
+            project=project or None,
+            session_ids=session_ids,
+            limit=max(1, min(limit, 800)),
+        )
+
+
+@app.post("/api/prompts/repair-times")
+def api_prompts_repair_times():
+    db.init_db()
+    with db.session() as conn:
+        repair = prompt_guides.repair_inbox_timestamps(conn)
+        return {"ok": True, **repair}
+
+
+@app.post("/api/prompts/sync")
+def api_prompts_sync():
+    db.init_db()
+    with db.session() as conn:
+        sync = prompt_guides.sync_cursor_inbox(conn)
+        from .collectors import notes as notes_col
+
+        notes_n = notes_col.collect(conn)
+        conn.commit()
+        return {"ok": True, "sync": sync, "notes": notes_n, "repair": sync.get("repair")}
+
+
+@app.post("/api/prompts/reclassify")
+def api_prompts_reclassify():
+    db.init_db()
+    with db.session() as conn:
+        n = prompt_guides.reclassify_inbox_auto(conn)
+        return {"ok": True, "updated": n}
+
+
+@app.post("/api/prompts/fragments/delete")
+def api_prompts_fragments_delete(body: PromptFragmentsDeleteBody):
+    if not body.fragment_ids:
+        return JSONResponse({"error": "fragment_ids 为空"}, status_code=400)
+    db.init_db()
+    with db.session() as conn:
+        result = prompt_guides.delete_fragments(conn, body.fragment_ids)
+        return {"ok": True, **result}
+
+
+@app.post("/api/prompts/sessions/delete")
+def api_prompts_sessions_delete(body: PromptSessionsDeleteBody):
+    if not body.session_ids:
+        return JSONResponse({"error": "session_ids 为空"}, status_code=400)
+    db.init_db()
+    with db.session() as conn:
+        result = prompt_guides.delete_cursor_sessions(conn, body.session_ids)
+        return {"ok": True, **result}
+
+
+@app.patch("/api/prompts/fragments/{fid}")
+def api_prompts_fragment_type(fid: int, body: PromptFragmentTypeBody):
+    db.init_db()
+    with db.session() as conn:
+        prompt_guides.update_fragment_type(
+            conn, fid, type_id=body.type_id, type_name=body.type_name,
+        )
+        return {"ok": True}
+
+
+@app.get("/api/prompts/guides")
+def api_prompts_guides(type_id: int | None = None, origin: str | None = None):
+    db.init_db()
+    with db.session() as conn:
+        return {
+            "guides": prompt_guides.list_guides(
+                conn, type_id=type_id, origin=origin or None,
+            ),
+        }
+
+
+@app.get("/api/prompts/guides/{gid}")
+def api_prompts_guide(gid: int):
+    db.init_db()
+    with db.session() as conn:
+        g = prompt_guides.get_guide(conn, gid)
+        if not g:
+            return JSONResponse({"error": "未找到"}, status_code=404)
+        return g
+
+
+@app.post("/api/prompts/merge")
+def api_prompts_merge(body: PromptMergeBody):
+    db.init_db()
+    with db.session() as conn:
+        g = prompt_guides.merge_fragments(
+            conn,
+            body.fragment_ids,
+            title=body.title,
+            type_id=body.type_id,
+            type_name=body.type_name,
+            project=body.project,
+            tags=body.tags,
+        )
+        return {"ok": True, "guide": g}
+
+
+@app.post("/api/prompts/guides")
+def api_prompts_guide_create(body: PromptGuideBody):
+    db.init_db()
+    with db.session() as conn:
+        g = prompt_guides.create_guide_manual(
+            conn,
+            body.title,
+            body.body,
+            type_id=body.type_id,
+            type_name=body.type_name,
+            project=body.project,
+            tags=body.tags,
+        )
+        return {"ok": True, "guide": g}
+
+
+@app.delete("/api/prompts/guides/{gid}")
+def api_prompts_guide_delete(gid: int):
+    db.init_db()
+    with db.session() as conn:
+        prompt_guides.delete_guide(conn, gid)
+        return {"ok": True}
 
 
 @app.get("/api/eval/cases")
@@ -809,6 +1428,90 @@ def api_compliance():
 @app.get("/api/graph")
 def api_graph(limit: int = 40):
     return compliance.knowledge_graph(limit=max(10, min(limit, 100)))
+
+
+@app.get("/api/projects/relations")
+def api_projects_relations(suite_id: int | None = None):
+    return project_relations.build_graph(suite_id=suite_id)
+
+
+@app.post("/api/projects/relations/infer")
+def api_projects_relations_infer(req: ProjectInferBody):
+    days = max(7, min(req.days, 180))
+    return project_relations.infer_and_store(days=days)
+
+
+@app.post("/api/projects/relations/links")
+def api_projects_relations_link(req: ProjectLinkBody):
+    try:
+        return project_relations.upsert_link(
+            from_project=req.from_project,
+            to_project=req.to_project,
+            link_type=req.link_type,
+            strength=req.strength,
+            reason=req.reason,
+            evidence=req.evidence,
+            pinned=req.pinned,
+        )
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@app.delete("/api/projects/relations/links/{link_id}")
+def api_projects_relations_link_delete(link_id: int):
+    ok = project_relations.delete_link(link_id)
+    return {"ok": ok}
+
+
+@app.post("/api/projects/relations/suites")
+def api_projects_relations_suite_create(req: ProjectSuiteBody):
+    return project_relations.create_suite(
+        name=req.name,
+        description=req.description,
+        role=req.role,
+        color=req.color,
+    )
+
+
+@app.put("/api/projects/relations/suites/{suite_id}")
+def api_projects_relations_suite_update(suite_id: int, req: ProjectSuiteUpdateBody):
+    ok = project_relations.update_suite(
+        suite_id,
+        name=req.name,
+        description=req.description,
+        role=req.role,
+        color=req.color,
+        sort_order=req.sort_order,
+    )
+    return {"ok": ok}
+
+
+@app.delete("/api/projects/relations/suites/{suite_id}")
+def api_projects_relations_suite_delete(suite_id: int):
+    return {"ok": project_relations.delete_suite(suite_id)}
+
+
+@app.put("/api/projects/relations/suites/{suite_id}/members")
+def api_projects_relations_suite_members(suite_id: int, req: ProjectSuiteMembersBody):
+    n = project_relations.set_suite_members(suite_id, req.project_ids)
+    return {"ok": True, "count": n}
+
+
+@app.post("/api/projects/relations/suites/{suite_id}/members")
+def api_projects_relations_suite_member_add(suite_id: int, req: ProjectMetaBody):
+    project_relations.add_suite_member(suite_id, req.project, note=req.note)
+    return {"ok": True}
+
+
+@app.delete("/api/projects/relations/suites/{suite_id}/members/{project_id:path}")
+def api_projects_relations_suite_member_remove(suite_id: int, project_id: str):
+    return {"ok": project_relations.remove_suite_member(suite_id, project_id)}
+
+
+@app.put("/api/projects/relations/meta")
+def api_projects_relations_meta(req: ProjectMetaBody):
+    project_relations.set_project_meta(req.project, role=req.role, note=req.note)
+    return {"ok": True}
 
 
 @app.post("/api/export/obsidian")
@@ -1029,5 +1732,5 @@ def api_usage(period: str = "day"):
 
 def run(host: str = "127.0.0.1", port: int = 8765):
     import uvicorn
-    db.init_db()
+
     uvicorn.run(app, host=host, port=port, log_level="warning")

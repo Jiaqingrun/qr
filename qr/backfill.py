@@ -6,7 +6,7 @@ import time
 from . import config
 from .collectors import COLLECTORS
 
-BACKFILL_SOURCES = ["shell", "git", "files", "cursor"]
+BACKFILL_SOURCES = ["shell", "git", "files", "cursor", "notes"]
 
 
 def since_ts(days: int) -> int:

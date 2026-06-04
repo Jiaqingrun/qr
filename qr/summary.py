@@ -5,22 +5,22 @@ import time
 from collections import Counter
 from pathlib import Path
 
-from . import config, db, governance, usage
+from . import config, db, governance, timeutil, usage
 from .ollama_client import Ollama
 
 PERIOD_SECONDS = {"day": 86400, "week": 604800}
 
 
 def _parse_day(s: str) -> datetime.datetime:
-    return datetime.datetime.strptime(s, "%Y-%m-%d")
+    return timeutil.parse_day(s)
 
 
 def _day_start(day: datetime.datetime) -> int:
-    return int(time.mktime(day.timetuple()))
+    return timeutil.day_start_local(day)
 
 
 def _day_end_exclusive(day: datetime.datetime) -> int:
-    return int(time.mktime((day + datetime.timedelta(days=1)).timetuple()))
+    return timeutil.day_end_exclusive_local(day)
 
 
 def _window(period: str) -> tuple[int, int]:

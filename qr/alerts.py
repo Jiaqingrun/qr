@@ -21,6 +21,15 @@ def publish_digest(days: int = 1, *, notify: bool = True) -> dict:
     return out
 
 
+def notify(title: str, body: str = "") -> bool:
+    """发送 macOS 系统通知（非 macOS 或失败时返回 False）。"""
+    t = (title or "QR 知识库").replace("\n", " ").strip()[:120]
+    b = (body or "").replace("\n", " ").strip()[:200]
+    if not t:
+        t = "QR 知识库"
+    return _mac_notify(t, b)
+
+
 def _mac_notify(title: str, body: str) -> bool:
     safe_title = title.replace('"', "'")
     safe_body = body.replace('"', "'")

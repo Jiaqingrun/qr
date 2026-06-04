@@ -7,13 +7,22 @@
 - 所有代码项目统一放在 **`~/QR/<分类>/<project-name>`**（分类如 `dev` / `mobile` / `experiments` / `tools` / `archive`），**不要**放在桌面 / 下载 / `~/Projects` 散落目录。
 - 新建项目：`qr workspace new <名称> --category dev`。
 - 项目命名用小写中划线：`my-project`，避免空格和大小写混用（本机文件系统大小写不敏感）。
-- 个人数据/知识库数据放 `~/.qr`；临时文件放系统临时目录，不留在桌面。
+- 临时文件放系统临时目录，不留在桌面。
 - 大文件（ISO / 安装包 / 视频）不放桌面，归档到外部盘或 NAS。
+
+### 知识库与本机数据（QR）
+- **业务项目代码**：仅 `~/QR/<分类>/<项目>`；**知识库程序仓库**（本系统源码）：`~/QR/dev/qr`。
+- **运行数据**（数据库 `qr.db`、配置、周期总结、笔记）：仅 **`~/.qr`**，不提交 Git、不放入业务项目目录。
+- **新建 / 迁移 / 清理**：`qr workspace new`、`qr workspace migrate`、`qr workspace prune`；删除项目须用 `qr workspace delete`（二次确认）。
+- **行为与笔记**：关键进展用 `qr log` 或 `~/.qr/notes/*.md`（由 `qr ingest` 同步）；每周 `qr summary --period week` 对照本规范复盘。
+- **索引与问答**：项目纳入知识库后执行 `qr index`；问答与检索基于本地索引，不依赖把数据拷进项目树。
+- **运维参考**（细节以 `~/QR/dev/qr/README.md` 为准）：自检 `qr doctor`，备份 `qr backup`，后台任务 `qr schedule status`。
 
 ## 二、Python 环境规范
 - 系统 Python（`/usr/bin/python3`）保持纯净，不 pip 安装任何东西。
 - 每个需要依赖的项目用独立 conda 环境：`conda create -n <name> python=3.x`。
 - 统一用 `/opt/anaconda3` 作为唯一 conda 入口；环境名用小写。
+- **QR本地知识库** 专用 conda 环境名固定为 **`qr`**（`conda activate qr`），禁止使用旧名 `kb`。
 - 每个项目根目录提供 `requirements.txt` 或 `environment.yml`，可复现。
 
 ## 三、Git 与开发规范
@@ -24,10 +33,23 @@
 
 ## 四、AI 协作规范
 - 复杂/多文件任务先让 AI 出方案再动手。
-- 项目里放 `AGENTS.md` 与 `.cursor/rules`，让 AI 自动遵守本规范（`qr rules` 生成）。
-- 重要的 AI 对话结论，用 `qr log` 记一条笔记沉淀下来。
+- **全局规范**（本文件）与 **项目规范**（各仓库 `PROJECT.md`）分层：`qr rules` 生成 `00-personal-standards.mdc` + `10-project.mdc` + `AGENTS.md`；冲突时项目细则优先。
+- 全局可从全部对话摘要修订：`qr standards-revise --from-conversations`；项目可从本项目对话修订：`qr project-standards-revise <项目>`。
+- **定时修订**：`qr schedule install` 后，`com.qr.weekly` 每周执行 `qr update --summary week` 时会自动修订全局规范（及近期有 Cursor 活动的最多 2 个项目）；间隔与开关见 `~/.qr/config.json` 中 `standards_auto_*`；手动：`qr standards-auto --force`。
+- 重要的 AI 对话结论，用 `qr log` 或 `~/.qr/notes/*.md` 沉淀，便于时间线与总结引用。
+- **引导语（Cursor 提示资产）**：
+  - Cursor 中的有效问话由知识库 **自动采集** 到引导语收件箱（`qr ingest` / `qr prompts sync`）；Web → **引导语** 页可查看。
+  - 同一任务的多轮追问，应 **合并** 为一条完整引导语（标记「合并合成」），避免碎片重复劳动。
+  - 可复用的提示模板 **手动新建** 或 **指定/新增类型**（内置类型 + 自定义类型名）；改分类视为「手动分类」。
+  - 完整引导语导出在 `~/.qr/prompts/<类型>/`，纳入笔记索引，可用 `qr ask` 检索；详见 `docs/USE_CASES.md` 第 11 节。
 
 ## 五、行为与复盘规范
 - 每天用 `qr log` 记录关键进展或决定。
 - 每周查看 `qr summary --period week` 的总结，对照本规范修正习惯。
-- 阶段性把散落的实验项目要么并入 `~/Projects` 正式管理，要么清理。
+- 阶段性把散落项目迁入 `~/QR` 或归档：`qr workspace migrate` / `qr workspace prune`。
+
+## 六、界面与视觉规范（全局）
+- **QR 知识库 Web**（`http://127.0.0.1:8765`）与各业务项目前台，在信息架构上保持一致：侧栏导航、卡片分区、时间线列表（首行标题 + 可点击路径）、标签色与来源色区分。
+- 深色主题为默认参考；主色使用 CSS 变量（如 `--lime` / `--muted` / `--rose`），避免硬编码散落颜色。
+- 交互：可点击项用 `.tl-link` / `btn` 体系；危险操作用 `--rose` 并二次确认；加载与空状态需有明确文案，避免空白页。
+- 新页面或改版先对照本节的布局与组件习惯，再写项目内 UI；**项目特有**的视觉（品牌色、插画）写在各项目 `PROJECT.md`，不写入本节。

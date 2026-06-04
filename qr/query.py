@@ -76,7 +76,9 @@ def _project_filter_match(
         if not cat_ok:
             return False
     if not project:
-        return True
+        from . import workspace
+
+        return workspace.is_searchable_content(path, doc_project)
     pl = project.lower()
     if "/" in pl:
         return pl in path_l or pl in doc_l
@@ -237,6 +239,10 @@ def search(
             merged = hybrid.rrf_merge(vec_hits, fts_hits, limit=fetch_k)
         else:
             merged = [{**h, "rrf": h.get("score", 0.0)} for h in vec_hits]
+    from . import workspace
+
+    for h in merged:
+        h["project"] = workspace.sanitize_display_project(h.get("project"))
     return _rerank_hits(merged, question, k)
 
 

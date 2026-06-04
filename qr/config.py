@@ -15,14 +15,45 @@ LOGS_DIR = QR_HOME / "logs"
 
 _LEGACY_HOME = Path.home() / ".kb"
 _LEGACY_DB_NAME = "kb.db"
+LEGACY_CONDA_ENV = "kb"
+LEGACY_CONDA_PATH_MARK = "/envs/kb/"
+_CONDA_BASE = Path("/opt/anaconda3/envs")
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "ollama_url": "http://localhost:11434",
     "embed_model": "bge-m3",
-    "chat_model": "qwen2.5:32b",
-    "deep_model": "deepseek-r1:32b",
+    "chat_model": "qwen2.5:72b",
+    "deep_model": "deepseek-r1:70b",
+    "default_ask_model": "qwen2.5:72b",
+    "ask_models": [
+        {
+            "id": "qwen2.5:32b",
+            "label": "Qwen 2.5 · 32B",
+            "hint": "速度快，适合日常查阅",
+            "reasoning": False,
+        },
+        {
+            "id": "qwen2.5:72b",
+            "label": "Qwen 2.5 · 72B",
+            "hint": "默认推荐，综合质量好",
+            "reasoning": False,
+            "default": True,
+        },
+        {
+            "id": "deepseek-r1:32b",
+            "label": "DeepSeek R1 · 32B",
+            "hint": "推理链，比 70B 快",
+            "reasoning": True,
+        },
+        {
+            "id": "deepseek-r1:70b",
+            "label": "DeepSeek R1 · 70B",
+            "hint": "强推理，最慢",
+            "reasoning": True,
+        },
+    ],
     "search_engine": "baidu",
     "web_results": 5,
     "baidu_api_key": "",
@@ -34,6 +65,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "shell_history": "~/.zsh_history",
     "cursor_projects_dir": "~/.cursor/projects",
     "cursor_poll_seconds": 60,
+    "web_watch_seconds": 45,
     "backfill_days": 365,
     "embed_dim": 1024,
     "scatter_roots": [
@@ -44,6 +76,14 @@ DEFAULT_CONFIG: dict[str, Any] = {
         ".git", "node_modules", ".venv", "venv", "env", "__pycache__",
         ".idea", ".gradle", "build", "dist", "Pods", ".next", "target",
         ".conda", ".mypy_cache", ".pytest_cache", "DerivedData", ".cache",
+    ],
+    # 文件名或路径片段；支持 * 通配。评测脚本不入库，避免 RAG 泄漏答案。
+    "index_exclude_path_patterns": [
+        "eval_suite.py",
+        "model_eval.py",
+        "model_compare_four.py",
+        "**/tests/**",
+        "**/test_*.py",
     ],
     "index_extensions": [
         ".py", ".js", ".ts", ".tsx", ".jsx", ".java", ".kt", ".swift",
@@ -59,6 +99,18 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "web_port": 8765,
     "context_tokens": 32768,
     "deep_context_tokens": 131072,
+    "prompt_guides_dir": "~/.qr/prompts",
+    "prompt_guides_auto_sync": True,
+    "prompt_guides_export_md": True,
+    # 完成度 100%：末次修改距今至少 N 天（功能点全完成 + 优化完成 + 用户认可）
+    "completion_dormant_days": 14,
+    # 定时从 Cursor 对话摘要修订规范（默认随每周 qr update --summary week 执行）
+    "standards_auto_revise": True,
+    "standards_auto_on_weekly": True,
+    "standards_auto_interval_hours": 168,
+    "standards_auto_global": True,
+    "standards_auto_projects": True,
+    "standards_auto_max_projects": 2,
 }
 
 
@@ -138,5 +190,79 @@ def scan_roots(cfg: dict[str, Any] | None = None) -> list[Path]:
 
 def ensure_dirs() -> None:
     migrate_legacy_home()
-    for d in (QR_HOME, SUMMARIES_DIR, LOGS_DIR):
+    for d in (
+        QR_HOME,
+        SUMMARIES_DIR,
+        LOGS_DIR,
+        QR_HOME / "notes",
+        QR_HOME / "backups",
+        QR_HOME / "cursor_chats",
+    ):
         d.mkdir(parents=True, exist_ok=True)
+
+
+def resolve_qr_argv() -> list[str]:
+    """launchd 与安装脚本使用的可执行入口，优先 conda 环境 ``qr``（勿用旧名 ``kb``）。"""
+    import sys
+
+    qr_bin = _CONDA_BASE / "qr" / "bin" / "qr"
+    if qr_bin.is_file():
+        return [str(qr_bin)]
+    qr_py = _CONDA_BASE / "qr" / "bin" / "python"
+    if qr_py.is_file():
+        return [str(qr_py), "-m", "qr.cli"]
+    found = shutil.which("qr")
+    if found and LEGACY_CONDA_PATH_MARK not in found:
+        return [found]
+    if found:
+        pass
+    candidate = Path(sys.executable).parent / "qr"
+    if candidate.is_file():
+        return [str(candidate)]
+    return [found] if found else [str(qr_bin)]
+
+
+def legacy_kb_findings() -> list[dict[str, str]]:
+    """检测仍使用旧名 kb 的 conda 环境或 launchd 配置。"""
+    out: list[dict[str, str]] = []
+    if os.environ.get("CONDA_DEFAULT_ENV") == LEGACY_CONDA_ENV:
+        out.append({
+            "area": "conda",
+            "level": "warn",
+            "message": f"当前 shell 在 conda 环境「{LEGACY_CONDA_ENV}」中，知识库应使用环境「qr」",
+            "fix": "conda activate qr（若未安装：conda create -n qr python=3.12 && pip install -e ~/QR/dev/qr）",
+        })
+    exe = shutil.which("qr") or ""
+    if LEGACY_CONDA_PATH_MARK in exe:
+        out.append({
+            "area": "conda",
+            "level": "warn",
+            "message": f"PATH 中的 qr 命令仍来自 {LEGACY_CONDA_PATH_MARK}",
+            "fix": "conda activate qr && pip install -e ~/QR/dev/qr",
+        })
+    agents = Path.home() / "Library" / "LaunchAgents"
+    stale: list[str] = []
+    if agents.is_dir():
+        for plist in sorted(agents.glob("com.qr*.plist")):
+            try:
+                text = plist.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            if LEGACY_CONDA_PATH_MARK in text:
+                stale.append(plist.name)
+    if stale:
+        out.append({
+            "area": "schedule",
+            "level": "warn",
+            "message": "后台任务仍指向旧 conda 环境 kb: " + ", ".join(stale[:4]),
+            "fix": "conda activate qr && qr schedule install && qr web --install",
+        })
+    kb_bin = _CONDA_BASE / LEGACY_CONDA_ENV / "bin" / "qr"
+    if kb_bin.is_file() and (_CONDA_BASE / "qr").is_dir():
+        out.append({
+            "area": "conda",
+            "level": "info",
+            "message": f"检测到并存 conda 环境「{LEGACY_CONDA_ENV}」与「qr」，建议只保留 qr",
+            "fix": f"确认 qr 环境可用后：conda remove -n {LEGACY_CONDA_ENV}",
+        })
+    return out

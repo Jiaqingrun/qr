@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from . import config
+from . import config, models
 from .query import SYSTEM
 
 HISTORY_LIMIT = 20
@@ -39,9 +39,10 @@ def _format_web(web_results: list[dict]) -> str:
     )
 
 
-def _context_limit(deep: bool) -> int:
+def _context_limit(*, deep: bool = False, model: str | None = None) -> int:
     cfg = config.load_config()
-    key = "deep_context_tokens" if deep else "context_tokens"
+    reasoning = models.is_reasoning_model(model, cfg) if model else deep
+    key = "deep_context_tokens" if reasoning else "context_tokens"
     return int(cfg.get(key, 32768))
 
 
@@ -69,11 +70,12 @@ def estimate_ask_context(
     k: int = 6,
     web: bool = False,
     deep: bool = False,
+    model: str | None = None,
     hits: list[dict] | None = None,
     web_results: list[dict] | None = None,
 ) -> dict:
     cfg = config.load_config()
-    limit = _context_limit(deep)
+    limit = _context_limit(deep=deep, model=model)
     history = history or []
 
     system_t = estimate_tokens(SYSTEM)

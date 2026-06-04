@@ -4,7 +4,7 @@ import os
 import sqlite3
 from pathlib import Path
 
-from .. import config, db
+from .. import config, db, scan_paths
 
 
 def _project_of(path: Path, root: Path) -> str:
@@ -42,6 +42,7 @@ def collect(
         if not root.exists():
             continue
         for dirpath, dirnames, filenames in os.walk(root):
+            scan_paths.prune_walk_dirnames(dirnames, Path(dirpath))
             dirnames[:] = [
                 d for d in dirnames
                 if d not in exclude and not d.startswith(".") and not d.endswith(".egg-info")

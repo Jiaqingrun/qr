@@ -4,7 +4,7 @@ import json
 import time
 from pathlib import Path
 
-from . import compliance, config, db, facts, query
+from . import compliance, config, db, facts, query, timeutil
 
 
 def _match_project_path(path: str, project: str) -> bool:
@@ -83,7 +83,7 @@ def panel(project: str, days: int = 14) -> dict:
         "window_days": days,
         "git_commits": [
             {
-                "time": time.strftime("%Y-%m-%d %H:%M", time.localtime(r["ts"])),
+                "time": timeutil.format_local(r["ts"]),
                 "title": r["title"],
                 "preview": (r["content"] or "")[:200],
             }

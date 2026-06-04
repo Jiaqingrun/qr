@@ -4,7 +4,7 @@ import json
 import sqlite3
 import time
 
-from . import db
+from . import db, models
 
 _HISTORY_LIMIT = 20
 
@@ -14,13 +14,30 @@ def _title(text: str) -> str:
     return line[:120] if line else "(空问题)"
 
 
-def create_session(conn: sqlite3.Connection, *, title: str, deep: bool, web: bool) -> int:
+def create_session(
+    conn: sqlite3.Connection,
+    *,
+    title: str,
+    model: str,
+    web: bool,
+    deep: bool | None = None,
+) -> int:
     ts = db.now()
+    reasoning = int(deep if deep is not None else models.is_reasoning_model(model))
     cur = conn.execute(
-        "INSERT INTO chat_sessions(title, deep, web, created_at, updated_at) VALUES(?,?,?,?,?)",
-        (_title(title), int(deep), int(web), ts, ts),
+        "INSERT INTO chat_sessions(title, deep, web, model, created_at, updated_at) "
+        "VALUES(?,?,?,?,?,?)",
+        (_title(title), reasoning, int(web), model, ts, ts),
     )
     return int(cur.lastrowid)
+
+
+def update_session_model(conn: sqlite3.Connection, session_id: int, model: str) -> None:
+    reasoning = int(models.is_reasoning_model(model))
+    conn.execute(
+        "UPDATE chat_sessions SET model=?, deep=?, updated_at=? WHERE id=?",
+        (model, reasoning, db.now(), session_id),
+    )
 
 
 def touch_session(conn: sqlite3.Connection, session_id: int) -> None:
@@ -32,7 +49,8 @@ def touch_session(conn: sqlite3.Connection, session_id: int) -> None:
 
 def get_session(conn: sqlite3.Connection, session_id: int) -> dict | None:
     row = conn.execute(
-        "SELECT id, title, deep, web, created_at, updated_at FROM chat_sessions WHERE id=?",
+        "SELECT id, title, deep, web, model, created_at, updated_at "
+        "FROM chat_sessions WHERE id=?",
         (session_id,),
     ).fetchone()
     if row is None:
@@ -41,11 +59,14 @@ def get_session(conn: sqlite3.Connection, session_id: int) -> dict | None:
 
 
 def _session_row(row: sqlite3.Row) -> dict:
+    model = row["model"] if row["model"] else models.default_ask_model()
     return {
         "id": row["id"],
         "title": row["title"],
         "deep": bool(row["deep"]),
         "web": bool(row["web"]),
+        "model": model,
+        "model_label": models.model_label(model),
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
     }
@@ -151,7 +172,7 @@ def list_sessions(
 
     offset = (page - 1) * limit
     rows = conn.execute(
-        f"SELECT s.id, s.title, s.deep, s.web, s.created_at, s.updated_at, "
+        f"SELECT s.id, s.title, s.deep, s.web, s.model, s.created_at, s.updated_at, "
         f"(SELECT COUNT(*) FROM chat_messages m WHERE m.session_id=s.id AND m.role='user') AS turns, "
         f"(SELECT content FROM chat_messages m WHERE m.session_id=s.id AND m.role='assistant' "
         f"ORDER BY m.id DESC LIMIT 1) AS last_answer "
@@ -162,12 +183,15 @@ def list_sessions(
     items = []
     for r in rows:
         preview = (r["last_answer"] or r["title"] or "").replace("\n", " ").strip()[:220]
+        smodel = r["model"] if r["model"] else models.default_ask_model()
         items.append({
             "id": r["id"],
             "title": r["title"],
             "turns": r["turns"],
             "deep": bool(r["deep"]),
             "web": bool(r["web"]),
+            "model": smodel,
+            "model_label": models.model_label(smodel),
             "preview": preview,
             "created": time.strftime("%Y-%m-%d %H:%M", time.localtime(r["created_at"])),
             "updated": time.strftime("%Y-%m-%d %H:%M", time.localtime(r["updated_at"])),
