@@ -65,8 +65,8 @@
     height:100vh; overflow:hidden; flex-shrink:0;
   }
   .brand{
-    position:relative;display:flex;align-items:center;gap:12px;
-    padding:10px 10px 22px;margin-bottom:2px;overflow:hidden;
+    position:relative;display:flex;align-items:center;gap:13px;
+    padding:11px 10px 20px;margin-bottom:2px;overflow:hidden;
   }
   .brand::before{
     content:'';position:absolute;inset:0;border-radius:var(--r-sm);pointer-events:none;
@@ -79,22 +79,22 @@
     40%{transform:translateX(100%);opacity:.85}
   }
   .brand-mark{
-    position:relative;width:42px;height:42px;flex-shrink:0;
+    position:relative;width:48px;height:48px;flex-shrink:0;
     display:grid;place-items:center;filter:drop-shadow(0 4px 18px rgba(110,168,254,.35));
   }
   .brand-mark::before{
-    content:'';position:absolute;inset:-1px;border-radius:14px;
+    content:'';position:absolute;inset:-1px;border-radius:15px;
     background:conic-gradient(from 0deg,#6ea8fe,#7ee0a8,#5ad1e0,#c9a0ff,#ff9ec0,#6ea8fe);
     animation:brandRingSpin 9s linear infinite;
   }
   .brand-mark::after{
-    content:'';position:absolute;inset:2px;border-radius:11px;
+    content:'';position:absolute;inset:2px;border-radius:12px;
     background:linear-gradient(155deg,rgba(26,32,48,.98),rgba(10,12,18,.98));
     box-shadow:inset 0 1px 0 rgba(255,255,255,.06);
   }
   @keyframes brandRingSpin{to{transform:rotate(360deg)}}
   .brand-core{
-    position:relative;z-index:1;font-weight:800;font-size:14px;letter-spacing:-.06em;
+    position:relative;z-index:1;font-weight:800;font-size:15px;letter-spacing:-.06em;
     background:linear-gradient(135deg,#f4f8ff 0%,#b8d4ff 40%,#7ee0a8 100%);
     background-size:200% 200%;
     -webkit-background-clip:text;background-clip:text;color:transparent;
@@ -105,7 +105,7 @@
     50%{background-position:100% 50%}
   }
   .brand-glow{
-    position:absolute;inset:6px;border-radius:9px;z-index:0;pointer-events:none;
+    position:absolute;inset:7px;border-radius:10px;z-index:0;pointer-events:none;
     background:radial-gradient(circle at 50% 50%,rgba(110,168,254,.25),transparent 70%);
     animation:brandGlowPulse 3s ease-in-out infinite;
   }
@@ -115,7 +115,7 @@
   }
   .brand-copy{flex:1;min-width:0;position:relative;z-index:1}
   .brand-text{
-    font-size:15px;font-weight:650;letter-spacing:-.02em;line-height:1.25;
+    font-size:17px;font-weight:650;letter-spacing:-.02em;line-height:1.25;
     display:flex;align-items:baseline;gap:0;flex-wrap:nowrap;
   }
   .brand-text-mark{
@@ -131,14 +131,30 @@
   }
   .brand-text-rest{color:var(--text)}
   .brand-sub{
-    position:relative;height:16px;margin-top:5px;overflow:hidden;
-    font-size:11px;color:var(--muted);
+    position:relative;height:18px;margin-top:6px;overflow:hidden;
+    font-size:12px;
   }
-  .brand-sub-track{display:block;transition:transform .55s var(--ease),opacity .55s var(--ease)}
+  .brand-sub-track{
+    display:block;font-weight:550;letter-spacing:.03em;
+    background:linear-gradient(90deg,#6ea8fe,#7ee0a8,#5ad1e0,#c9a0ff,#ff9ec0,#ffb86b,#6ea8fe);
+    background-size:400% 100%;
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+    animation:brandSubFlow 9s linear infinite;
+    transition:transform .55s var(--ease),opacity .55s var(--ease);
+    filter:drop-shadow(0 0 10px rgba(126,224,168,.22));
+  }
+  @keyframes brandSubFlow{
+    0%{background-position:0% 50%}
+    100%{background-position:400% 50%}
+  }
   .brand-sub-track.is-out{opacity:0;transform:translateY(-6px)}
   @media(prefers-reduced-motion:reduce){
-    .brand::before,.brand-mark::before,.brand-core,.brand-glow,.brand-text-mark{animation:none!important}
+    .brand::before,.brand-mark::before,.brand-core,.brand-glow,.brand-text-mark,.brand-sub-track{animation:none!important}
     .brand-mark::before{opacity:.85}
+    .brand-sub-track{
+      background:none;color:var(--muted);-webkit-background-clip:unset;background-clip:unset;
+      filter:none;
+    }
   }
   .nav{display:flex;flex-direction:column;gap:2px;flex:1;min-height:0;overflow-y:auto;padding:0 2px}
   .nav-label{font-size:10px;font-weight:600;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;padding:14px 10px 6px;opacity:.75}
@@ -149,11 +165,18 @@
   }
   .nav-title{flex-shrink:0;line-height:1.25;font-size:13.5px}
   .nav-sub{
-    flex:1;min-width:0;margin-left:4px;font-size:10px;line-height:1.25;
-    text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-    transition:opacity .32s var(--ease);
+    flex:0 0 76px;width:76px;max-width:76px;margin-left:auto;
+    font-size:10px;line-height:1.25;
+    height:1.25em;min-height:1.25em;text-align:left;overflow:hidden;
+    position:relative;align-self:center;
+    mask-image:linear-gradient(90deg,transparent,#000 2px,#000 calc(100% - 2px),transparent);
   }
-  .nav-sub.is-fading{opacity:0}
+  .nav-sub .stat-line-marquee{animation:navSubMarquee 14s linear infinite}
+  .nav-sub .stat-line-marquee:hover{animation-play-state:paused}
+  @keyframes navSubMarquee{
+    0%{transform:translateX(0)}
+    100%{transform:translateX(-50%)}
+  }
   .nav-item[data-v="ask"] .nav-sub{color:var(--blue)}
   .nav-item[data-v="project"] .nav-sub{color:var(--cyan)}
   .nav-item[data-v="relations"] .nav-sub{color:#5ad4c4}
@@ -165,6 +188,7 @@
   .nav-item[data-v="standards"] .nav-sub{color:var(--lime)}
   .nav-item[data-v="stdlog"] .nav-sub{color:var(--amber)}
   .nav-item[data-v="insight"] .nav-sub{color:var(--rose)}
+  .nav-item[data-v="ops"] .nav-sub{color:var(--blue)}
   .nav-item:hover{background:rgba(255,255,255,.05);color:var(--text2)}
   .nav-item:active{transform:scale(.98)}
   .nav-item.active{color:var(--text);font-weight:600;background:rgba(255,255,255,.04);box-shadow:var(--shadow-sm)}
@@ -179,6 +203,7 @@
   .nav-item.active[data-v="standards"]{box-shadow:inset 3px 0 0 var(--lime),var(--shadow-sm)}
   .nav-item.active[data-v="stdlog"]{box-shadow:inset 3px 0 0 var(--amber),var(--shadow-sm)}
   .nav-item.active[data-v="insight"]{box-shadow:inset 3px 0 0 var(--rose),var(--shadow-sm)}
+  .nav-item.active[data-v="ops"]{box-shadow:inset 3px 0 0 var(--blue),var(--shadow-sm)}
   .nav-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;box-shadow:0 0 8px currentColor;opacity:.9}
   .sidebar-foot{padding:8px 6px 6px;border-top:1px solid var(--border);margin-top:auto;flex-shrink:0}
   .foot-label{
@@ -926,6 +951,10 @@
   .timeline{margin-top:8px}
   .tl-item{display:grid;grid-template-columns:110px 72px 1fr;gap:12px;padding:12px 0;border-bottom:1px solid var(--border);align-items:start}
   .tl-item:last-child{border:none}
+  .tl-item.tl-item--new{animation:tlItemIn .38s var(--ease)}
+  @keyframes tlItemIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+  #tlOut.tl-loading{opacity:.94;transition:opacity .18s var(--ease)}
+  #tlOut.tl-loading .tl-item{pointer-events:none}
   .tl-time{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;padding-top:2px}
   .tag{
     display:inline-block;padding:3px 9px;border-radius:6px;font-size:10px;font-weight:650;
@@ -1015,6 +1044,17 @@
   .view--fill .insight-grid .panel-pre{flex:1;min-height:120px;max-height:none}
   .view--fill .insight-grid .graph-wrap{flex:1;min-height:200px;height:auto}
   .insight-grid .card{margin-top:0}
+  .ops-list{list-style:none;margin:0;padding:0;font-size:12px;line-height:1.45}
+  .ops-list li{padding:5px 0;border-bottom:1px solid var(--border)}
+  .ops-list li:last-child{border-bottom:none}
+  .ops-agent{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:4px 0;font-size:11.5px}
+  .ops-tag{font-size:10px;padding:1px 6px;border-radius:999px;border:1px solid var(--border);white-space:nowrap}
+  .ops-tag.ok{color:var(--mint);border-color:rgba(126,224,168,.35)}
+  .ops-tag.warn{color:var(--amber);border-color:rgba(255,184,107,.35)}
+  .ops-tag.err{color:var(--rose);border-color:rgba(255,120,140,.35)}
+  .ops-import-row{display:flex;align-items:flex-start;gap:8px;padding:4px 0;font-size:11.5px;line-height:1.35}
+  .ops-import-row input{margin-top:2px}
+  .ops-path{color:var(--muted);font-size:10.5px;word-break:break-all}
   .similar-hint{
     font-size:12px;color:var(--amber);margin:0 0 10px;padding:10px 14px;border-radius:var(--r-sm);
     background:rgba(255,184,107,.07);border:1px solid rgba(255,184,107,.22);
@@ -1225,6 +1265,7 @@
       <button class="nav-item" data-v="standards"><span class="nav-dot" style="color:var(--lime);background:var(--lime)"></span><span class="nav-title">规范</span><span class="nav-sub"></span></button>
       <button class="nav-item" data-v="stdlog"><span class="nav-dot" style="color:var(--amber);background:var(--amber)"></span><span class="nav-title">沿革</span><span class="nav-sub"></span></button>
       <button class="nav-item" data-v="insight"><span class="nav-dot" style="color:var(--rose);background:var(--rose)"></span><span class="nav-title">洞察</span><span class="nav-sub"></span></button>
+      <button class="nav-item" data-v="ops"><span class="nav-dot" style="color:var(--blue);background:var(--blue)"></span><span class="nav-title">运维</span><span class="nav-sub"></span></button>
     </nav>
     <div class="sidebar-foot">
       <div class="foot-label">
@@ -1738,6 +1779,48 @@
         </div>
         </div>
       </section>
+
+      <section class="view view--fill" id="view-ops">
+        <div class="page-ops">
+        <div class="toolbar-stack">
+          <div class="toolbar-row">
+            <span class="toolbar-label">维护</span>
+            <div class="btn-group">
+              <button class="btn btn-primary btn-sm" id="opsRefreshBtn">刷新状态</button>
+              <button class="btn btn-sm" id="opsBackupBtn">备份数据库</button>
+              <button class="btn btn-sm" id="opsOptimizeBtn">一键优化</button>
+              <button class="btn btn-sm" id="opsScheduleBtn">安装定时任务</button>
+            </div>
+          </div>
+          <div class="toolbar-row">
+            <span class="toolbar-label">采集</span>
+            <div class="btn-group">
+              <button class="btn btn-ghost btn-sm" id="opsGitSyncBtn">对齐 Git 扫描目录</button>
+              <button class="btn btn-ghost btn-sm" id="opsRepairTimesBtn">修复引导语时间</button>
+              <button class="btn btn-ghost btn-sm" id="opsImportDiscoverBtn">扫描散落项目</button>
+              <button class="btn btn-ghost btn-sm" id="opsImportIndexBtn">加入索引</button>
+            </div>
+            <span class="hint" id="opsHint" style="margin:0"></span>
+          </div>
+        </div>
+        </div>
+        <div class="page-body page-body--grid">
+        <div class="insight-grid">
+          <div class="card">
+            <div class="card-head">自检 · 权限</div>
+            <pre class="panel-pre" id="opsDoctorOut">加载中…</pre>
+          </div>
+          <div class="card">
+            <div class="card-head">定时任务 · 备份 · 配置</div>
+            <pre class="panel-pre panel-pre--tall" id="opsScheduleOut"></pre>
+          </div>
+          <div class="card" style="grid-column:1/-1">
+            <div class="card-head">散落项目（就地索引，不移动文件）</div>
+            <div id="opsImportList" class="ops-list"><div class="hint">点击「扫描散落项目」发现 ~/Desktop 等目录下的仓库。</div></div>
+          </div>
+        </div>
+        </div>
+      </section>
     </div>
   </div>
 </div>
@@ -1805,6 +1888,7 @@ const PAGE={
   stdlog:{title:'规范沿革',desc:'自第 2 版起仅显示相对上一版的增加、删减与修改'},
   insight:{title:'洞察',desc:'每日摘要 · 合规 · 知识图谱 · RAG 评测'},
   prompts:{title:'引导语',desc:'Cursor 问话自动采集 · 分类 · 多段合并为可复用提示'},
+  ops:{title:'运维',desc:'自检 · 备份 · 定时任务 · Git 目录 · 散落项目导入'},
 };
 let projectCatalog={categories:[],projects:[],by_category:{}};
 
@@ -2039,6 +2123,7 @@ function switchView(v){
   }
   if(v==='stdlog') loadStdChangelog();
   if(v==='insight')loadInsightPlaceholder();
+  if(v==='ops')loadOps();
   if(v==='usage')loadUsage();
   if(v==='ask'){if(!askState.dateFrom&&!askState.dateTo&&!askState.q)askState.page=1;loadChats()}
   if(v==='project'){
@@ -2601,7 +2686,24 @@ const PILLAR_FALLBACK={
 const badgeTickerState={items:[],index:0,status:null};
 const projectFocusState={project:'',brief:null,loading:false,_fetchT:null};
 let lastProjectPickEl=null;
-const navSubState={byView:{},tick:0};
+const navSubState={byView:{}};
+
+function navSubLineHtml(subs){
+  return subs.map(s=>`<span class="nav-sub-text">${esc(s)}</span>`).join('<span class="stat-sep">·</span>');
+}
+
+function renderNavSubs(){
+  $$('.nav-item').forEach(btn=>{
+    const v=btn.dataset.v;
+    const el=btn.querySelector('.nav-sub');
+    if(!el) return;
+    const subs=navSubState.byView[v]||[];
+    if(!subs.length){el.innerHTML='';el.title='';return}
+    const inner=navSubLineHtml(subs);
+    el.title=subs.join(' · ');
+    el.innerHTML=`<div class="stat-line-marquee"><span class="stat-line-track">${inner}</span><span class="stat-line-track" aria-hidden="true">${inner}</span></div>`;
+  });
+}
 
 function buildNavSubLines(s){
   if(!s) return {};
@@ -2620,32 +2722,8 @@ function buildNavSubLines(s){
     standards:[`${fmt(s.standards_versions||0)} 个版本`,s.health_ok?'规范就绪':'待检查'],
     stdlog:['仅增删改','自第 2 版起'],
     insight:['RAG 评测','合规 · 图谱'],
+    ops:['备份 · 定时','自检 · 导入'],
   };
-}
-
-function renderNavSubs(){
-  $$('.nav-item').forEach(btn=>{
-    const v=btn.dataset.v;
-    const el=btn.querySelector('.nav-sub');
-    if(!el) return;
-    const subs=navSubState.byView[v]||[];
-    if(!subs.length){el.textContent='';return}
-    const idx=navSubState.tick%subs.length;
-    const show=subs[idx];
-    el.classList.add('is-fading');
-    window.setTimeout(()=>{
-      el.textContent=show;
-      el.title=subs.join(' · ');
-      el.classList.remove('is-fading');
-    },120);
-  });
-}
-
-function navSubsAdvance(){
-  const views=Object.keys(navSubState.byView);
-  if(!views.length) return;
-  navSubState.tick+=1;
-  renderNavSubs();
 }
 
 function getUiSelectedProject(){
@@ -2881,7 +2959,6 @@ async function loadStats(){
     }
     renderStatusPillars(s);
     navSubState.byView=buildNavSubLines(s);
-    navSubState.tick=0;
     renderNavSubs();
     badgeTickerState.status=s;
     scheduleProjectFocusFetch();
@@ -2907,13 +2984,15 @@ async function tlSyncCursorQuiet(){
   if(!view?.classList.contains('active')) return;
   if(tlHasFilter()||tlState.page!==1) return;
   try{
+    const before=tlExistingKeys().length;
     await api('/api/ingest/cursor?backfill=false',{method:'POST'});
-    await loadTimeline(1);
+    await loadTimeline(1,{silent:true,incremental:true});
+    const after=tlExistingKeys().length;
+    if(after>before) tlFlashSyncHint(`已同步 ${after-before} 条新记录`);
   }catch(_e){}
 }
 if(!window._qrStatsRotate){
   window._qrStatsRotate=setInterval(()=>{
-    navSubsAdvance();
     badgeTickerAdvance();
   },3800);
   setInterval(()=>{
@@ -3491,7 +3570,11 @@ function tlSortLabel(){
   return tlState.sort==='time'?'由近及远':'活动优先（同组内由近及远）';
 }
 
-function evRow(e){
+function tlItemKey(e){
+  return e.uid||`${e.source||''}:${e.ts||0}:${(e.title||'').slice(0,96)}`;
+}
+
+function evRow(e,opts={}){
   let body='';
   if(e.link){
     const label=e.link.label||e.title||'';
@@ -3502,7 +3585,61 @@ function evRow(e){
     body=esc(t)+(e.project?`<span style="color:var(--muted)"> · ${esc(e.project)}</span>`:'');
   }
   const est=e.ts_estimated?' <span class="tl-est" title="该条时间为估算（对话无时间戳或历史无 epoch）">估</span>':'';
-  return `<div class="tl-item"><div class="tl-time">${e.time}${est}</div><div><span class="tag ${e.source}">${e.source}</span></div><div class="tl-body">${body}</div></div>`;
+  const newCls=opts.isNew?' tl-item--new':'';
+  return `<div class="tl-item${newCls}" data-uid="${esc(tlItemKey(e))}"><div class="tl-time">${e.time}${est}</div><div><span class="tag ${e.source}">${e.source}</span></div><div class="tl-body">${body}</div></div>`;
+}
+
+function tlEmptyHtml(){
+  return `<div class="empty">${tlHasFilter()?'该条件下暂无记录':'暂无事件'}</div>`;
+}
+
+function renderTimelineList(r,{animateNew}={}){
+  const out=$('#tlOut');
+  if(!r.items.length){
+    out.innerHTML=tlEmptyHtml();
+    return;
+  }
+  out.innerHTML=r.items.map(e=>evRow(e,{isNew:!!animateNew})).join('');
+}
+
+function tlExistingKeys(){
+  return [...($('#tlOut')?.querySelectorAll('.tl-item')||[])].map(el=>el.dataset.uid||'');
+}
+
+function applyTimelineIncremental(r){
+  const out=$('#tlOut');
+  if(!out) return false;
+  const existing=tlExistingKeys();
+  if(!existing.length) return false;
+  const newKeys=r.items.map(tlItemKey);
+  const eq=(a,b)=>a.length===b.length&&a.every((k,i)=>k===b[i]);
+  if(eq(existing,newKeys)) return true;
+  if(newKeys.length>existing.length){
+    const offset=newKeys.length-existing.length;
+    const tail=newKeys.slice(offset);
+    if(eq(tail,existing)){
+      const html=r.items.slice(0,offset).map(e=>evRow(e,{isNew:true})).join('');
+      out.insertAdjacentHTML('afterbegin',html);
+      const all=out.querySelectorAll('.tl-item');
+      for(let i=TL_PAGE_SIZE;i<all.length;i++) all[i].remove();
+      return true;
+    }
+  }
+  return false;
+}
+
+function tlCanIncremental(){
+  return !tlHasFilter()&&tlState.page===1&&tlState.sort==='time';
+}
+
+function tlFlashSyncHint(text,ms=2200){
+  const hint=$('#tlSyncHint');
+  if(!hint) return;
+  const idle=hint.dataset.idle||hint.textContent;
+  if(!hint.dataset.idle) hint.dataset.idle=idle;
+  hint.textContent=text;
+  clearTimeout(hint._tlSyncTimer);
+  hint._tlSyncTimer=setTimeout(()=>{ hint.textContent=hint.dataset.idle||idle; },ms);
 }
 function tlHasFilter(){return !!(tlState.dateFrom||tlState.dateTo||tlState.source)}
 function tlDateLabel(){
@@ -3563,21 +3700,44 @@ function renderTimelinePager(r){
   const jump=$('#tlPageJump');
   jump.max=r.pages; jump.placeholder=r.page;
 }
-async function loadTimeline(page){
+async function loadTimeline(page,opts={}){
+  const silent=!!opts.silent;
+  const wantIncremental=opts.incremental!==false&&tlCanIncremental();
   if(page!==undefined) tlState.page=page;
-  $('#tlOut').innerHTML='<div class="empty"><span class="spin"></span> 加载中…</div>';
+  const out=$('#tlOut');
+  if(!out) return;
+  const hasItems=!!out.querySelector('.tl-item');
+  if(!silent&&!hasItems){
+    out.innerHTML='<div class="empty"><span class="spin"></span> 加载中…</div>';
+  }else if(!silent){
+    out.classList.add('tl-loading');
+  }
   try{
     const r=normalizeEvents(await api(tlQuery()));
     tlState.page=r.page;
-    $('#tlOut').innerHTML=r.items.length?r.items.map(evRow).join(''):`<div class="empty">${tlHasFilter()?'该条件下暂无记录':'暂无事件'}</div>`;
+    let merged=false;
+    if(wantIncremental&&hasItems){
+      merged=applyTimelineIncremental(r);
+    }
+    if(!merged) renderTimelineList(r);
     renderTimelinePager(r);
+    out.classList.remove('tl-loading');
+    return r;
   }catch(e){
-    $('#tlOut').innerHTML=`<div class="empty" style="color:var(--amber)">加载失败：${esc(e.message)}</div>`;
-    $('#tlPager').style.display='none';
+    out.classList.remove('tl-loading');
+    if(!silent||!hasItems){
+      out.innerHTML=`<div class="empty" style="color:var(--amber)">加载失败：${esc(e.message)}</div>`;
+      $('#tlPager').style.display='none';
+    }
+    throw e;
   }
 }
-function tlApplyFilters(){syncTimelineFilters();tlState.page=1;loadTimeline()}
-function tlReloadLatest(){loadTimeline(tlHasFilter()?undefined:1)}
+function tlApplyFilters(){syncTimelineFilters();tlState.page=1;loadTimeline(1)}
+function tlReloadLatest(opts={}){
+  const silent=opts.silent!==false;
+  const page=tlHasFilter()?undefined:1;
+  return loadTimeline(page,{silent,incremental:opts.incremental!==false});
+}
 $('#tlDateFrom').onchange=tlApplyFilters;
 $('#tlDateTo').onchange=tlApplyFilters;
 $('#tlSource').onchange=()=>{tlState.source=$('#tlSource').value;tlState.page=1;loadTimeline()};
@@ -3610,7 +3770,7 @@ $('#ingestBtn').onclick=async()=>{
   if(qrRunHas('ingest')) return;
   const b=$('#ingestBtn');b.disabled=true;b.textContent='采集中…';
   qrRunStart({id:'ingest',label:'行为采集',group:'timeline'});
-  try{await api('/api/ingest',{method:'POST'});await tlReloadLatest();await loadStats()}catch(e){}
+  try{await api('/api/ingest',{method:'POST'});await tlReloadLatest({silent:true});await loadStats()}catch(e){}
   qrRunEnd('ingest');b.disabled=false;b.textContent='采集行为';
 };
 $('#backfillBtn').onclick=async()=>{
@@ -3624,7 +3784,7 @@ $('#backfillBtn').onclick=async()=>{
     const parts=Object.entries(r.result||{}).filter(([k,v])=>k!=='days'&&k!=='since'&&typeof v==='number').map(([k,v])=>`${k} ${v}`);
     hint.textContent=`已补录 ${r.total} 条 · ${r.result.since} 起 · ${parts.join(' · ')}`;
     hint.dataset.idle=hint.textContent;
-    await tlReloadLatest();await loadStats();
+    await tlReloadLatest({silent:true});await loadStats();
   }catch(e){
     hint.textContent='补录失败：'+e.message;
     hint.dataset.idle=hint.textContent;
@@ -3659,7 +3819,7 @@ $('#noteBtn').onclick=async()=>{
       return;
     }
     $('#noteInput').value='';
-    await tlReloadLatest();
+    await tlReloadLatest({silent:true});
     await loadStats();
   }catch(e){
     alert(e.message||'记录失败');
@@ -4711,6 +4871,174 @@ $('#digestNotifyBtn').onclick=async()=>{
 $('#factsInsightBtn').onclick=async()=>{try{const r=await api('/api/facts');$('#insightOut2').textContent=(r.facts||[]).map(f=>`${f.key}: ${f.value}${f.project?' · '+f.project:''}`).join('\n')||'暂无，可点「同步事实」'}catch(e){$('#insightOut2').textContent='出错：'+e.message}};
 $('#evalRegBtn').onclick=async()=>{try{const r=await api('/api/eval/regression');const rows=(r.series||[]).map(s=>`${s.time} | qwen ${s.qwen}/${s.total} | deep ${s.deepseek}/${s.total} (${s.label})`).join('\n');const d=r.delta?`\nΔ qwen ${r.delta.qwen>=0?'+':''}${r.delta.qwen} · deep ${r.delta.deepseek>=0?'+':''}${r.delta.deepseek}`:'';$('#insightOut2').textContent=(rows||'无历史')+d}catch(e){$('#insightOut2').textContent='出错：'+e.message}};
 $('#evalDecisionBtn').onclick=async()=>{try{const r=await api('/api/eval/decision-draft',{method:'POST'});$('#noteInput').value=r.text;switchView('timeline');$('#noteInput').focus()}catch(e){alert(e.message)}};
+
+const opsState={data:null,imports:[]};
+function opsLevelTag(level){
+  const cls=level==='error'?'err':level==='warn'?'warn':'ok';
+  return `<span class="ops-tag ${cls}">${esc(level||'ok')}</span>`;
+}
+function renderOpsDoctor(d){
+  const doc=d?.doctor||{};
+  const ok=(doc.ok_items||[]).map(x=>'✓ '+x).join('\n');
+  const issues=(doc.issues||[]).map(i=>`${i.level.toUpperCase()} · ${i.area}\n  ${i.message}\n  → ${i.fix}`).join('\n\n');
+  const priv=(d?.permissions||[]).map(p=>`${p.ok?'✓':'✗'} ${p.label} · ${p.detail}`).join('\n');
+  $('#opsDoctorOut').textContent=[ok&&('[正常]\n'+ok),issues&&('\n[待完善]\n'+issues),priv&&('\n[权限探测]\n'+priv)].filter(Boolean).join('\n\n')||'暂无数据';
+}
+function renderOpsSchedule(d){
+  const sched=d?.schedule||{};
+  const agents=(sched.agents||[]).map(a=>{
+    const st=a.loaded?'运行中':a.installed?'已安装未加载':'未安装';
+    return `${a.loaded?'✓':'·'} ${a.title} (${a.label})\n    ${st}`;
+  }).join('\n');
+  const cfg=d?.config||{};
+  const backups=(d?.backups||[]).map(b=>`${b.mtime} · ${b.name} · ${b.size_mb} MB`).join('\n')||'（尚无备份）';
+  const lines=[
+    `[定时任务] ${sched.loaded||0}/${sched.total||0} 已加载`,
+    agents,
+    '',
+    `[Git] 事件 ${cfg.git_events??'—'} 条`,
+    `索引根: ${(cfg.index_roots||[]).join(' · ')||'—'}`,
+    `Git 扫描: ${(cfg.git_scan_roots||[]).join(' · ')||'—'}`,
+    cfg.git_roots_missing_from_index?.length?`未对齐: ${cfg.git_roots_missing_from_index.join(' · ')}`:'',
+    '',
+    `[路径]`,
+    `数据: ${d?.qr_home||'—'}`,
+    `配置: ${cfg.path||'—'}`,
+    '',
+    `[最近备份]`,
+    backups,
+  ];
+  $('#opsScheduleOut').textContent=lines.filter(Boolean).join('\n');
+}
+function renderOpsImports(list){
+  opsState.imports=list||[];
+  const box=$('#opsImportList');
+  if(!opsState.imports.length){
+    box.innerHTML='<div class="hint">未发现可导入项目（或尚未扫描）。</div>';
+    return;
+  }
+  box.innerHTML=opsState.imports.map((p,i)=>`<label class="ops-import-row"><input type="checkbox" class="ops-import-cb" data-i="${i}" checked><span><strong>${esc(p.name)}</strong><span class="ops-path">${esc(p.path)}</span></span></label>`).join('');
+}
+async function loadOps(){
+  const hint=$('#opsHint');
+  if(hint) hint.textContent='加载中…';
+  $('#opsDoctorOut').textContent='加载中…';
+  try{
+    const d=await api('/api/ops/overview');
+    opsState.data=d;
+    renderOpsDoctor(d);
+    renderOpsSchedule(d);
+    if(hint) hint.textContent='';
+  }catch(e){
+    if(hint) hint.textContent='';
+    $('#opsDoctorOut').textContent='加载失败：'+e.message;
+    $('#opsScheduleOut').textContent='';
+  }
+}
+$('#opsRefreshBtn')?.addEventListener('click',()=>loadOps());
+$('#opsBackupBtn')?.addEventListener('click',async()=>{
+  if(qrRunHas('ops-backup')) return;
+  qrRunStart({id:'ops-backup',label:'数据库备份',group:'ops',hintEl:'#opsHint'});
+  let msg='',err=false;
+  try{
+    const r=await api('/api/ops/backup',{method:'POST'});
+    msg='已备份到 '+r.path;
+    await loadOps();
+    loadStats();
+  }catch(e){err=true;msg='备份失败：'+e.message}
+  qrRunEnd('ops-backup',{message:msg,error:err});
+});
+$('#opsOptimizeBtn')?.addEventListener('click',async()=>{
+  if(!confirm('一键优化含 reindex / 总结 / 规范修订 / 引导语合并，可能较久。继续？')) return;
+  if(qrRunHas('ops-optimize')) return;
+  qrRunStart({id:'ops-optimize',label:'一键优化',group:'ops',hintEl:'#opsHint'});
+  let msg='',err=false;
+  try{
+    const r=await api('/api/ops/optimize',{method:'POST'});
+    const b=r.before||{},a=r.after||{};
+    msg=`文档 ${b.documents}→${a.documents} · 块 ${b.chunks}→${a.chunks}`;
+    await loadOps();
+    loadStats();
+  }catch(e){err=true;msg='优化失败：'+e.message}
+  qrRunEnd('ops-optimize',{message:msg,error:err});
+});
+$('#opsScheduleBtn')?.addEventListener('click',async()=>{
+  if(!confirm('安装 launchd 定时任务（采集、Cursor 同步、Web 常驻等）？\nWeb 服务会短暂断开并重连。')) return;
+  if(qrRunHas('ops-schedule')) return;
+  qrRunStart({id:'ops-schedule',label:'安装定时任务',group:'ops',hintEl:'#opsHint'});
+  let msg='',err=false;
+  try{
+    const r=await api('/api/ops/schedule/install',{method:'POST'});
+    msg=r.message||'定时任务已安装';
+    if(r.web_restart_pending){
+      const hint=$('#opsHint');
+      if(hint) hint.textContent='Web 正在重装，约 5 秒…';
+      await new Promise(res=>setTimeout(res,5000));
+      try{
+        await loadOps();
+        loadStats();
+      }catch(_){
+        location.reload();
+        return;
+      }
+    }else{
+      await loadOps();
+      loadStats();
+    }
+  }catch(e){
+    err=true;
+    msg=e.message==='Failed to fetch'
+      ?'连接中断（可能因 Web 服务正在重启）；请稍候刷新页面后查看任务状态'
+      :('失败：'+e.message);
+  }
+  qrRunEnd('ops-schedule',{message:msg,error:err});
+});
+$('#opsGitSyncBtn')?.addEventListener('click',async()=>{
+  if(qrRunHas('ops-git-sync')) return;
+  qrRunStart({id:'ops-git-sync',label:'对齐 Git 目录',group:'ops',hintEl:'#opsHint'});
+  let msg='',err=false;
+  try{
+    const r=await api('/api/ops/git-sync-roots',{method:'POST'});
+    msg=r.changed?('已添加 '+((r.added||[]).join(' · ')||'目录')):'目录已对齐，无需修改';
+    await loadOps();
+  }catch(e){err=true;msg='失败：'+e.message}
+  qrRunEnd('ops-git-sync',{message:msg,error:err});
+});
+$('#opsRepairTimesBtn')?.addEventListener('click',async()=>{
+  if(qrRunHas('ops-repair-times')) return;
+  qrRunStart({id:'ops-repair-times',label:'修复引导语时间',group:'ops',hintEl:'#opsHint'});
+  let msg='',err=false;
+  try{
+    const r=await api('/api/prompts/repair-times',{method:'POST'});
+    msg='已修复 '+(r.updated??0)+' 条';
+  }catch(e){err=true;msg='失败：'+e.message}
+  qrRunEnd('ops-repair-times',{message:msg,error:err});
+});
+$('#opsImportDiscoverBtn')?.addEventListener('click',async()=>{
+  if(qrRunHas('ops-import-scan')) return;
+  qrRunStart({id:'ops-import-scan',label:'扫描散落项目',group:'ops',hintEl:'#opsHint'});
+  let msg='',err=false;
+  try{
+    const r=await api('/api/ops/import/discover');
+    renderOpsImports(r.projects||[]);
+    msg='发现 '+(r.projects||[]).length+' 个项目';
+  }catch(e){err=true;msg='扫描失败：'+e.message}
+  qrRunEnd('ops-import-scan',{message:msg,error:err});
+});
+$('#opsImportIndexBtn')?.addEventListener('click',async()=>{
+  const paths=[...$$('.ops-import-cb:checked')].map(el=>opsState.imports[+el.dataset.i]?.path).filter(Boolean);
+  if(!paths.length){alert('请先扫描并勾选要加入索引的项目');return}
+  if(qrRunHas('ops-import')) return;
+  qrRunStart({id:'ops-import',label:'加入索引',group:'ops',hintEl:'#opsHint'});
+  let msg='',err=false;
+  try{
+    const r=await api('/api/ops/import',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({paths,move:false})});
+    msg='已加入 '+((r.added||[]).length)+' 个目录，请运行索引';
+    await loadOps();
+  }catch(e){err=true;msg='失败：'+e.message}
+  qrRunEnd('ops-import',{message:msg,error:err});
+});
+
 function formatCompletionGates(b){
   if(!b||!b.completion_gates) return '';
   const g=b.completion_gates;
@@ -4934,7 +5262,7 @@ async function submitProjectDelete(){
     setProjectDeleteStatus(okMsg,'ok');
     closeProjectDeleteModal();
     $('#projectOut').textContent=okMsg+'\n\n时间线与引导语记录已保留。\n\n'+formatVerifyReport(v);
-    if(typeof tlReloadLatest==='function') await tlReloadLatest();
+    if(typeof tlReloadLatest==='function') await tlReloadLatest({silent:true});
     $('#projectOut2').textContent='';
     $('#projectSelect').value='';
     try{sessionStorage.removeItem('qr_active_project')}catch(_){}

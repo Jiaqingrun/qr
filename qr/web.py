@@ -8,7 +8,7 @@ import threading
 import time
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import BackgroundTasks, FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
@@ -33,6 +33,7 @@ from . import (
     models,
     links,
     ops_timeline,
+    ops_panel,
     project_brief,
     project_panel,
     project_relations,
@@ -1719,6 +1720,92 @@ def api_usage(period: str = "day"):
     start, end = summary._window(period)
     rows, total = usage.stats(start, end)
     return {"total": total, "total_human": usage._fmt(total), "apps": rows}
+
+
+class OpsImportBody(BaseModel):
+    paths: list[str]
+    move: bool = False
+
+
+@app.get("/api/ops/overview")
+def api_ops_overview():
+    db.init_db()
+    with db.session() as conn:
+        return ops_panel.overview(conn)
+
+
+@app.post("/api/ops/backup")
+def api_ops_backup():
+    db.init_db()
+    try:
+        result = ops_panel.run_backup()
+    except OSError as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+    ops_timeline.log_safe(
+        action="ops.backup",
+        title="[知识库] 数据库备份",
+        content=result["path"],
+    )
+    return {"ok": True, **result}
+
+
+@app.post("/api/ops/git-sync-roots")
+def api_ops_git_sync_roots():
+    result = ops_panel.sync_git_scan_roots()
+    return {"ok": True, **result}
+
+
+@app.get("/api/ops/import/discover")
+def api_ops_import_discover():
+    return {"projects": ops_panel.discover_imports()}
+
+
+@app.post("/api/ops/import")
+def api_ops_import(body: OpsImportBody):
+    result = ops_panel.import_paths(body.paths, move=body.move)
+    if not result.get("ok"):
+        return JSONResponse(result, status_code=400)
+    return result
+
+
+@app.post("/api/ops/schedule/install")
+def api_ops_schedule_install(background_tasks: BackgroundTasks):
+    result = ops_panel.install_schedule(include_web=False)
+    if not result.get("ok"):
+        return JSONResponse(result, status_code=500)
+    background_tasks.add_task(_ops_install_web_agents_background)
+    result["web_restart_pending"] = True
+    result["message"] = "采集与同步任务已安装；Web 服务将在数秒后自动重装"
+    return result
+
+
+def _ops_install_web_agents_background() -> None:
+    from . import schedule_service
+
+    try:
+        schedule_service.install_web_agents()
+    except Exception:
+        logging.exception("后台安装 Web launchd 任务失败")
+
+
+@app.post("/api/ops/optimize")
+def api_ops_optimize():
+    from . import optimize as opt
+
+    db.init_db()
+    before = opt.metrics_snapshot()
+    try:
+        result = opt.run(
+            reindex=True,
+            run_summary=True,
+            run_standards_auto=True,
+            merge_prompts=True,
+        )
+    except OllamaError as e:
+        return JSONResponse({"error": str(e)}, status_code=502)
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+    return {"ok": True, "before": before, "after": result["after"], "steps": result["steps"]}
 
 
 def run(host: str = "127.0.0.1", port: int = 8765):

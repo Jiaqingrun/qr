@@ -174,10 +174,35 @@ def diagnose(conn: sqlite3.Connection | None = None) -> dict:
                 "area": "schedule",
                 "level": "warn",
                 "message": "后台任务未全部加载: " + ", ".join(missing),
-                "fix": "qr schedule install",
+                "fix": "运维页安装定时任务，或 qr schedule install",
             })
         else:
             ok_items.append("launchd 后台任务已加载")
+
+        git_n = conn.execute(
+            "SELECT COUNT(*) c FROM events WHERE source='git'"
+        ).fetchone()["c"]
+        index_paths = [str(p) for p in config.expand_paths(cfg.get("index_roots", []))]
+        git_paths = [str(p) for p in config.git_roots(cfg)]
+        missing_git = sorted(set(index_paths) - set(git_paths))
+        if missing_git:
+            sample = ", ".join(missing_git[:2])
+            more = f" 等 {len(missing_git)} 个" if len(missing_git) > 2 else ""
+            issues.append({
+                "area": "git",
+                "level": "info",
+                "message": f"Git 扫描目录未覆盖部分索引根：{sample}{more}",
+                "fix": "运维页「对齐 Git 扫描目录」，然后 qr ingest --source git",
+            })
+        elif git_n < 5 and index_paths:
+            issues.append({
+                "area": "git",
+                "level": "info",
+                "message": f"Git 事件仅 {git_n} 条，工作区内可能缺少 Git 仓库或尚未补录",
+                "fix": "qr backfill --sources git 或确认项目目录含 .git",
+            })
+        elif git_n:
+            ok_items.append(f"Git 事件 {git_n} 条")
 
         roots = config.expand_paths(cfg.get("index_roots", []))
         if any(scan_paths.is_home_root(r) for r in roots):
