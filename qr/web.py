@@ -36,7 +36,6 @@ from . import (
     project_brief,
     project_panel,
     project_relations,
-    cursor_archive,
     query,
     summary,
     usage,
@@ -82,6 +81,8 @@ async def ops_timeline_middleware(request: Request, call_next):
     response = await call_next(request)
 
     if method not in ("POST", "PUT", "DELETE", "PATCH") or not path.startswith("/api/"):
+        return response
+    if ops_timeline.skip_timeline_path(path):
         return response
     if not ops_timeline.should_log_http(method, path, response.status_code):
         return response
@@ -226,14 +227,6 @@ def index():
     return FileResponse(STATIC / "index.html")
 
 
-@app.get("/api/cursor/turn/{session_id}/{qidx}")
-def api_cursor_turn(session_id: str, qidx: int):
-    data = cursor_archive.read_turn(session_id, qidx)
-    if data is None:
-        return JSONResponse({"error": "对话归档不存在，请运行 qr ingest --source cursor"}, status_code=404)
-    return data
-
-
 @app.get("/api/status")
 def status():
     try:
@@ -373,6 +366,7 @@ def events(
     proj_cond, proj_args = workspace.events_project_sql_filter()
     where.append(proj_cond)
     args.extend(proj_args)
+    where.append(workspace.events_timeline_hidden_sql())
 
     clause = (" WHERE " + " AND ".join(where)) if where else ""
     with db.session() as conn:
@@ -393,6 +387,8 @@ def events(
     out = []
     for r in rows:
         if not workspace.event_row_visible(r["source"], r["project"]):
+            continue
+        if workspace.event_timeline_hidden(r["source"], r["title"], r["meta"]):
             continue
         ts_estimated = False
         has_reply = False
@@ -518,16 +514,6 @@ def api_project_delete(req: DeleteProjectBody):
         return JSONResponse({"error": str(e)}, status_code=400)
 
 
-@app.get("/api/workspace/project/verify")
-def api_project_verify(project: str):
-    if not project.strip():
-        return JSONResponse({"error": "缺少 project 参数"}, status_code=400)
-    try:
-        return workspace.verify_project_removed(project.strip())
-    except ValueError as e:
-        return JSONResponse({"error": str(e)}, status_code=400)
-
-
 def _finish_ask(
     body: AskBody,
     answer: str,
@@ -625,12 +611,12 @@ def api_ask(body: AskBody):
                     question, body.k, model=model, web=body.web,
                     history=history, project=body.project, category=body.category,
                 ):
-                    if ev["type"] == "meta":
-                        hits = ev.get("hits") or []
-                        web_results = ev.get("web") or []
-                        yield f"data: {_json.dumps(ev, ensure_ascii=False)}\n\n"
-                    elif ev["type"] == "token":
-                        answer += ev.get("text", "")
+                    if ev["type"] in ("meta", "status", "token"):
+                        if ev["type"] == "token":
+                            answer += ev.get("text", "")
+                        elif ev["type"] == "meta":
+                            hits = ev.get("hits") or []
+                            web_results = ev.get("web") or []
                         yield f"data: {_json.dumps(ev, ensure_ascii=False)}\n\n"
                     elif ev["type"] == "done":
                         answer = ev.get("answer") or answer
@@ -641,7 +627,11 @@ def api_ask(body: AskBody):
             except OllamaError as e:
                 yield f"data: {_json.dumps({'type': 'error', 'error': str(e)}, ensure_ascii=False)}\n\n"
 
-        return StreamingResponse(gen(), media_type="text/event-stream")
+        return StreamingResponse(
+            gen(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     try:
         answer, hits, web_results = query.ask(
@@ -1542,16 +1532,15 @@ def api_eval_history(limit: int = 12):
             data = json.loads(p.read_text(encoding="utf-8"))
         except Exception:
             continue
-        qwen = data.get("results", {}).get("qwen", [])
-        deep = data.get("results", {}).get("deepseek", [])
-        q_ok = sum(1 for r in qwen if r.get("must_pass"))
-        d_ok = sum(1 for r in deep if r.get("must_pass"))
+        scores = eval_suite.model_pass_counts(data)
+        total = eval_suite.eval_case_total(data)
         items.append({
             "file": p.name,
             "time": time.strftime("%Y-%m-%d %H:%M", time.localtime(p.stat().st_mtime)),
-            "qwen_ok": q_ok,
-            "deep_ok": d_ok,
-            "total": max(len(qwen), len(deep), 1),
+            "scores": scores,
+            "qwen_ok": scores.get("qwen", 0),
+            "deep_ok": scores.get("deepseek", 0),
+            "total": total,
         })
     return {"items": items}
 
@@ -1582,8 +1571,10 @@ def api_eval_failures():
         return {"items": [], "summary": "尚无评测结果"}
     data = json.loads(p.read_text(encoding="utf-8"))
     out: list[dict] = []
-    for model_key in ("qwen", "deepseek"):
-        for r in data.get("results", {}).get(model_key, []):
+    for model_key, model_results in (data.get("results") or {}).items():
+        if not isinstance(model_results, list):
+            continue
+        for r in model_results:
             if r.get("must_pass"):
                 continue
             out.append({

@@ -45,15 +45,13 @@ FULL_SCOPE_EXTRA_EXCLUDES = [
 
 FULL_SCOPE_PATCH: dict = {
     "permission_scope": "full",
-    "index_roots": ["~/QR", "~"],
-    "git_scan_roots": ["~"],
+    "index_roots": ["~/QR"],
+    "git_scan_roots": ["~/QR"],
     "scatter_roots": [
         "~",
-        "~/QR",
         "~/Desktop",
         "~/Documents",
         "~/Downloads",
-        "~/Projects",
         "~/AndroidStudioProjects",
         "~/PyCharmMiscProject",
         "~/.cursor",

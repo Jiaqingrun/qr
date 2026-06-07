@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import sqlite3
 import subprocess
 from pathlib import Path
 
-from .. import config, db
+from .. import config, db, workspace
 
 _SEP = "\x1f"
 _REC = "@@@QRREC@@@"
@@ -61,7 +62,8 @@ def _collect_repo(
     if out.returncode != 0 or not out.stdout:
         return 0
 
-    project = repo.name
+    ws_root = workspace.workspace_root()
+    project = workspace.project_from_path(repo, ws_root)
     new = 0
     max_ts = last_ts if not backfill else since_ts or 0
     blocks = out.stdout.split(_REC)
@@ -100,6 +102,10 @@ def _collect_repo(
         semantic = f"涉及类型: {', '.join(sorted(exts)[:12])}" if exts else ""
         content = f"{subject}\n{body}\n\n{diff_line}\n{semantic}\n\n变更文件:\n{files_txt}".strip()
         uid = f"git:{_repo_key(repo)}:{h[:12]}"
+        meta = json.dumps(
+            {"author": author, "files": len(files), "repo": str(repo.resolve())},
+            ensure_ascii=False,
+        )
         conn.execute("DELETE FROM events WHERE uid=?", (uid,))
         db.insert_event(
             conn,
@@ -109,7 +115,7 @@ def _collect_repo(
             project=project,
             title=subject[:120],
             content=content,
-            meta=f'{{"author": "{author}", "files": {len(files)}}}',
+            meta=meta,
         )
         new += 1
         max_ts = max(max_ts, ts)
@@ -126,7 +132,7 @@ def collect(
 ) -> int:
     if backfill:
         conn.execute("DELETE FROM events WHERE source='git'")
-    scan = roots if roots else config.scan_roots()
+    scan = roots if roots is not None else config.git_roots()
     total = 0
     for repo in _find_repos(scan):
         total += _collect_repo(conn, repo, backfill=backfill, since_ts=since_ts)

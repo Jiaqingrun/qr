@@ -24,8 +24,10 @@ alwaysApply: true
 - 测试：`python3 -m unittest discover -s tests`
 - 自检：`qr doctor`；勿恢复误删 `qr.db` 的沿革逻辑
 - 索引默认仅 `~/QR`（见 `config.json` → `index_roots`）
+- **Web UI 布局**：全页面全宽自适应 + `view--fill`；规范见 `docs/WEB_UI_LAYOUT.md`
 
 ## AI 协作（本项目）
-- 先读 `README.md`、`docs/USE_CASES.md`
+- 先读 `README.md`、`docs/USE_CASES.md`、`docs/WEB_UI_LAYOUT.md`
 - 最小 diff；不提交除非用户要求
 - 时间线 cursor 事件按 file 打开归档路径，不用弹窗
+- 改版 `qr/static/index.html` 须遵守 WEB_UI_LAYOUT（`page-ops` / `page-body` / `split-shell`）

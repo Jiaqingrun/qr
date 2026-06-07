@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from qr import config, governance, project_standards, workspace
+from qr import config, governance, ops_timeline, project_standards, workspace
 
 
 class TestProjectStandards(unittest.TestCase):
@@ -63,6 +63,59 @@ class TestProjectStandards(unittest.TestCase):
         self.assertFalse(workspace.event_row_visible("file", "Documents/EVE"))
         self.assertTrue(workspace.event_row_visible("cursor", "forge"))
         self.assertTrue(workspace.event_row_visible("file", "dev/qr"))
+
+    def test_event_timeline_hidden_cursor_ingest(self):
+        meta = '{"kind":"qr_operation","action":"ingest.cursor","via":"web"}'
+        self.assertTrue(
+            workspace.event_timeline_hidden("qr", "[知识库] Cursor 采集", meta)
+        )
+        self.assertFalse(
+            workspace.event_timeline_hidden("qr", "[知识库] 本地问答", '{"action":"ask"}')
+        )
+        self.assertFalse(workspace.event_timeline_hidden("cursor", "某对话", meta))
+        sql = workspace.events_timeline_hidden_sql()
+        self.assertIn("ingest.cursor", sql)
+        self.assertIn("[知识库] Cursor 采集", sql)
+        self.assertIn("NOT", sql)
+        self.assertTrue(ops_timeline.skip_timeline_path("/api/ingest/cursor"))
+        self.assertFalse(ops_timeline.should_log_http("POST", "/api/ingest/cursor", 200))
+        self.assertIsNone(
+            ops_timeline.describe_http("POST", "/api/ingest/cursor", {}, {})
+        )
+
+    def test_purge_timeline_hidden_qr_events(self):
+        import sqlite3
+
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.executescript(
+            """
+            CREATE TABLE events (
+              uid TEXT PRIMARY KEY, ts INTEGER, source TEXT, project TEXT,
+              title TEXT, content TEXT, meta TEXT
+            );
+            """
+        )
+        conn.execute(
+            "INSERT INTO events VALUES (?,?,?,?,?,?,?)",
+            (
+                "qr:ingest.cursor:1",
+                1,
+                "qr",
+                None,
+                "[知识库] Cursor 采集",
+                "sync",
+                '{"action":"ingest.cursor"}',
+            ),
+        )
+        conn.execute(
+            "INSERT INTO events VALUES (?,?,?,?,?,?,?)",
+            ("qr:ask:2", 2, "qr", None, "[知识库] 本地问答", "q", '{"action":"ask"}'),
+        )
+        conn.commit()
+        self.assertEqual(workspace.purge_timeline_hidden_qr_events(conn), 1)
+        left = conn.execute("SELECT COUNT(*) c FROM events").fetchone()["c"]
+        self.assertEqual(left, 1)
 
     def test_list_projects_grouped_no_index_ghosts(self):
         g = workspace.list_projects_grouped()

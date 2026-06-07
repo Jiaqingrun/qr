@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 
 def classify_source_type(path: str) -> str:
     p = (path or "").lower().replace("\\", "/")
@@ -38,23 +36,3 @@ def annotate_hit(h: dict, question: str, path_boost: float) -> dict:
         },
         "score": final,
     }
-
-
-def project_name_from_path(path: str) -> str | None:
-    p = Path(path.replace("\\", "/"))
-    parts = [x for x in p.parts if x]
-    if not parts:
-        return None
-    if "QR" in parts:
-        i = parts.index("QR")
-        if i + 2 < len(parts):
-            return f"{parts[i + 1]}/{parts[i + 2]}"
-        if i + 1 < len(parts):
-            return parts[i + 1]
-    if "Projects" in parts:
-        i = parts.index("Projects")
-        if i + 1 < len(parts):
-            return f"legacy/{parts[i + 1]}"
-    if parts[0].startswith("cursor-"):
-        return parts[0].replace("cursor-", "", 1)
-    return p.stem if p.suffix else parts[-1]

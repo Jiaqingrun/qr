@@ -133,10 +133,32 @@ def _migrate_fragment_row(conn: sqlite3.Connection, fragment_id: int, event_uid:
     )
 
 
+def _backfill_fragment_cursor_ids(conn: sqlite3.Connection) -> int:
+    rows = conn.execute(
+        "SELECT id, event_uid FROM prompt_guide_fragments "
+        "WHERE event_uid IS NOT NULL AND TRIM(event_uid) != ''",
+    ).fetchall()
+    n = 0
+    for row in rows:
+        before = conn.execute(
+            "SELECT cursor_session_id, query_index FROM prompt_guide_fragments WHERE id=?",
+            (row["id"],),
+        ).fetchone()
+        _migrate_fragment_row(conn, row["id"], row["event_uid"])
+        after = conn.execute(
+            "SELECT cursor_session_id, query_index FROM prompt_guide_fragments WHERE id=?",
+            (row["id"],),
+        ).fetchone()
+        if before != after:
+            n += 1
+    return n
+
+
 def repair_inbox_timestamps(conn: sqlite3.Connection) -> dict[str, int]:
     """从 Cursor 转录重算收件箱碎片时间（并尽量同步 events.ts）。"""
     ensure_schema(conn)
     cpt.clear_transcript_cache()
+    _backfill_fragment_cursor_ids(conn)
     rows = conn.execute(
         "SELECT id, event_uid FROM prompt_guide_fragments WHERE guide_id IS NULL",
     ).fetchall()
@@ -442,7 +464,21 @@ def get_guide(conn: sqlite3.Connection, guide_id: int) -> dict | None:
         "WHERE f.guide_id=? ORDER BY f.ts",
         (guide_id,),
     ).fetchall()
-    g["fragments"] = [dict(f) for f in frags]
+    enriched: list[dict] = []
+    for f in frags:
+        fd = _enrich_fragment(dict(f))
+        turn = cpt.resolve_cursor_turn(
+            fd.get("cursor_session_id"),
+            fd.get("query_index"),
+            event_uid=fd.get("event_uid"),
+            query_text=fd.get("content"),
+        )
+        fd["cursor_reply"] = turn.get("reply") or ""
+        fd["reply_found"] = bool(turn.get("found"))
+        if turn.get("found") and turn.get("query") and not (fd.get("content") or "").strip():
+            fd["content"] = turn["query"]
+        enriched.append(fd)
+    g["fragments"] = enriched
     return g
 
 
@@ -463,10 +499,9 @@ def _enrich_guide(d: dict) -> dict:
 
 def _enrich_fragment(d: dict) -> dict:
     uid = d.get("event_uid") or ""
-    if not d.get("cursor_session_id"):
-        parsed = cpt.parse_event_uid(uid)
-        if parsed:
-            d["cursor_session_id"], d["query_index"] = parsed[0], parsed[1]
+    parsed = cpt.parse_event_uid(uid)
+    if parsed:
+        d["cursor_session_id"], d["query_index"] = parsed[0], parsed[1]
     ts = int(d.get("ts") or 0)
     est = bool(d.get("ts_estimated"))
     d["ts_estimated"] = est

@@ -188,6 +188,13 @@ def scan_roots(cfg: dict[str, Any] | None = None) -> list[Path]:
     return roots
 
 
+def git_roots(cfg: dict[str, Any] | None = None) -> list[Path]:
+    """Git 采集扫描根（仅 git_scan_roots，不与 scatter_roots 合并）。"""
+    cfg = cfg or load_config()
+    key = "git_scan_roots" if cfg.get("git_scan_roots") else "index_roots"
+    return expand_paths(cfg.get(key, []))
+
+
 def ensure_dirs() -> None:
     migrate_legacy_home()
     for d in (

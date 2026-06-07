@@ -165,23 +165,21 @@ def archive_session(
     return len(turns)
 
 
-def read_turn(session_id: str, query_index: int) -> dict | None:
-    path = turn_path(session_id, query_index)
-    if not path.is_file():
+def read_turn(session_id: str, query_index: int) -> dict[str, str] | None:
+    """读取 ~/.qr/cursor_chats 下已归档的问话与回复。"""
+    p = turn_path(session_id, query_index)
+    if not p.is_file():
         return None
-    text = path.read_text(encoding="utf-8", errors="replace")
-    query, reply = text, ""
-    if "\n---\n" in text:
-        query, reply = text.split("\n---\n", 1)
-        query, reply = query.strip(), reply.strip()
-    return {
-        "session_id": session_id,
-        "query_index": query_index,
-        "path": str(path.resolve()),
-        "markdown": text,
-        "query": query,
-        "reply": reply,
-    }
+    try:
+        text = p.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    parts = text.split("\n---\n", 1)
+    query = parts[0].strip()
+    reply = parts[1].strip() if len(parts) > 1 else ""
+    if not query and not reply:
+        return None
+    return {"query": query, "reply": reply}
 
 
 def link_for_event(

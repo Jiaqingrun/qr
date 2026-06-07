@@ -28,7 +28,7 @@ qr status                 # 查看状态
 qr ingest                 # 采集所有行为数据（增量）
 qr index                  # 索引 ~/QR 等项目内容
 qr query "关键词"          # 语义检索片段
-qr ask "我之前怎么实现X的？"  # 本地大模型基于项目内容回答
+qr ask "我之前怎么实现X的？"  # 本地大模型流式回答（加 --no-stream 可等完整后再渲染 Markdown）
 qr log "今天决定用方案A"     # 随手记笔记
 qr summary --period week  # 生成本周行为总结
 qr standards --edit       # 编辑个人规范
@@ -41,6 +41,8 @@ qr permissions setup      # 扩大采集范围并打开系统隐私设置
 qr schedule install       # 安装后台任务（追踪/同步/收录/Web）
 qr web --install          # 安装 Web 后台服务 + 每 45s 健康巡检（异常自动重启）
 qr web-watch --once       # 手动探测 Web 并在必要时拉起
+
+Web 界面布局规范见 [`docs/WEB_UI_LAYOUT.md`](docs/WEB_UI_LAYOUT.md)（全宽自适应、`page-ops` / `page-body`）。
 qr desktop --install      # 安装 macOS 桌面应用（QR本地知识库.app）
 qr workspace migrate --yes  # 将散落项目迁入 ~/QR
 qr workspace new my-app --category dev  # 新建项目

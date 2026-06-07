@@ -24,11 +24,13 @@ def run(
     since = since_ts(days)
     names = [s for s in (sources or BACKFILL_SOURCES) if s in COLLECTORS]
     roots = config.scan_roots(cfg)
+    git_roots = config.git_roots(cfg)
     result: dict[str, int | str] = {
         "days": days,
         "since": time.strftime("%Y-%m-%d", time.localtime(since)),
     }
     for name in names:
         fn = COLLECTORS[name]
-        result[name] = fn(conn, backfill=True, since_ts=since, roots=roots)
+        scan = git_roots if name == "git" else roots
+        result[name] = fn(conn, backfill=True, since_ts=since, roots=scan)
     return result

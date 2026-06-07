@@ -226,6 +226,55 @@ def event_row_visible(source: str, project: str | None) -> bool:
     return True
 
 
+_TIMELINE_HIDDEN_QR_ACTIONS = frozenset({"ingest.cursor"})
+
+
+def event_timeline_hidden(
+    source: str,
+    title: str | None = None,
+    meta: str | None = None,
+) -> bool:
+    """时间线 UI 应隐藏的知识库操作（后台仍执行，仅不展示）。"""
+    if (source or "").strip() != "qr":
+        return False
+    if (title or "").strip() == "[知识库] Cursor 采集":
+        return True
+    if meta:
+        try:
+            obj = json.loads(meta)
+            return obj.get("action") in _TIMELINE_HIDDEN_QR_ACTIONS
+        except json.JSONDecodeError:
+            pass
+    return False
+
+
+def _events_timeline_hidden_match_sql() -> str:
+    """SQL 片段：匹配应隐藏/可清理的 qr 时间线噪声。"""
+    actions = ",".join(f"'{a}'" for a in sorted(_TIMELINE_HIDDEN_QR_ACTIONS))
+    return (
+        "source = 'qr' AND ("
+        "title = '[知识库] Cursor 采集' OR "
+        f"json_extract(meta, '$.action') IN ({actions})"
+        ")"
+    )
+
+
+def events_timeline_hidden_sql() -> str:
+    """SQL 片段：排除后台 Cursor 采集等不入时间线的 qr 操作。"""
+    return f"NOT ({_events_timeline_hidden_match_sql()})"
+
+
+def purge_timeline_hidden_qr_events(conn) -> int:
+    """永久删除时间线中的后台 Cursor 采集等 qr 噪声记录。"""
+    match = _events_timeline_hidden_match_sql()
+    row = conn.execute(f"SELECT COUNT(*) c FROM events WHERE {match}").fetchone()
+    n = int(row["c"]) if row else 0
+    if n:
+        conn.execute(f"DELETE FROM events WHERE {match}")
+        conn.commit()
+    return n
+
+
 def events_project_sql_filter() -> tuple[str, list[str]]:
     """时间线 SQL 条件：file 事件仅保留工作区项目。"""
     allowed = list_projects_grouped(500)["projects"]

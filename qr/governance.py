@@ -162,6 +162,8 @@ def prune_redundant_versions() -> dict[str, int]:
 
 def prune_noise_versions() -> int:
     """删除测试/调试类备注的归档版本。"""
+    from . import standards_changelog
+
     db.init_db()
     with db.session() as conn:
         rows = conn.execute(

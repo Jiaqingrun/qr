@@ -15,6 +15,18 @@ _log = logging.getLogger(__name__)
 SOURCE = "qr"
 _KIND = "qr_operation"
 
+# 后台自动触发、永不写入时间线（避免 Cursor 增量采集刷屏）
+_NO_TIMELINE_PATHS = frozenset({
+    "/api/ingest/cursor",
+})
+
+
+def skip_timeline_path(path: str) -> bool:
+    p = (path or "").split("?", 1)[0]
+    return p in _NO_TIMELINE_PATHS or any(
+        p.startswith(prefix + "/") for prefix in _NO_TIMELINE_PATHS
+    )
+
 # 不重复记录或只读的 API
 _SKIP_PATHS = frozenset({
     "/api/status",
@@ -24,7 +36,6 @@ _SKIP_PATHS = frozenset({
     "/api/projects",
     "/api/categories",
     "/api/workspace/project/delete-preview",
-    "/api/workspace/project/verify",
     "/api/chats",
     "/api/summaries",
     "/api/standards",
@@ -193,6 +204,8 @@ def describe_http(
         return None
     if not path.startswith("/api/"):
         return None
+    if skip_timeline_path(path):
+        return None
     if path in _SKIP_PATHS:
         return None
     for p in _SKIP_PREFIXES:
@@ -211,8 +224,8 @@ def describe_http(
     if path == "/api/backfill":
         days = query.get("days") or body.get("days") or "365"
         return "backfill", "[知识库] 历史补录", f"补录近 {days} 天行为数据", project
-    if path.startswith("/api/ingest/cursor"):
-        return "ingest.cursor", "[知识库] Cursor 采集", "同步 Cursor 问话到收件箱/时间线", project
+    if skip_timeline_path(path):
+        return None
     if path == "/api/index":
         reindex = body.get("reindex") or query.get("reindex")
         return "index", "[知识库] 建立索引", f"{'全量重建' if reindex else '增量'}索引 ~/QR 工作区", project
@@ -339,6 +352,8 @@ def log_cli(argv: list[str]) -> None:
 
 def should_log_http(method: str, path: str, status_code: int) -> bool:
     if status_code >= 400:
+        return False
+    if skip_timeline_path(path):
         return False
     if describe_http(method, path, {}, {}) is None:
         return False

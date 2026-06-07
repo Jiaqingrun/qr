@@ -191,6 +191,22 @@ def summarize_rag(rows: list[dict]) -> dict:
     }
 
 
+def model_pass_counts(data: dict) -> dict[str, int]:
+    """统计各模型评测通过题数（results 下任意 key）。"""
+    out: dict[str, int] = {}
+    for key, rows in (data.get("results") or {}).items():
+        if isinstance(rows, list):
+            out[str(key)] = sum(1 for r in rows if r.get("must_pass"))
+    return out
+
+
+def eval_case_total(data: dict) -> int:
+    """单次评测的题量（取各模型结果长度的最大值）。"""
+    results = data.get("results") or {}
+    lengths = [len(rows) for rows in results.values() if isinstance(rows, list)]
+    return max(lengths) if lengths else 1
+
+
 def regression_report(limit: int = 8) -> dict:
     files = sorted(config.LOGS_DIR.glob("model_eval-*.json"), reverse=True)[:limit]
     cur = config.LOGS_DIR / "model_eval.json"
@@ -203,13 +219,13 @@ def regression_report(limit: int = 8) -> dict:
             data = json.loads(path.read_text(encoding="utf-8"))
         except Exception:
             return None
-        q = data.get("results", {}).get("qwen", [])
-        d = data.get("results", {}).get("deepseek", [])
+        scores = model_pass_counts(data)
         return {
             "time": time.strftime("%Y-%m-%d %H:%M", time.localtime(path.stat().st_mtime)),
-            "qwen": sum(1 for r in q if r.get("must_pass")),
-            "deepseek": sum(1 for r in d if r.get("must_pass")),
-            "total": max(len(q), len(d), 1),
+            "scores": scores,
+            "qwen": scores.get("qwen", 0),
+            "deepseek": scores.get("deepseek", 0),
+            "total": eval_case_total(data),
             "file": path.name,
         }
 
@@ -225,8 +241,9 @@ def regression_report(limit: int = 8) -> dict:
             series.append(s)
     delta = None
     if len(series) >= 2:
+        keys = set(series[0].get("scores", {})) | set(series[1].get("scores", {}))
         delta = {
-            "qwen": series[0]["qwen"] - series[1]["qwen"],
-            "deepseek": series[0]["deepseek"] - series[1]["deepseek"],
+            k: series[0]["scores"].get(k, 0) - series[1]["scores"].get(k, 0)
+            for k in sorted(keys)
         }
     return {"series": series, "delta": delta, "cases_path": str(CASES_PATH)}

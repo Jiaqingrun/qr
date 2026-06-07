@@ -12,6 +12,13 @@ class TestStandardsChangelog(unittest.TestCase):
         self.assertTrue(standards_changelog.skip_changelog_note("debug tweak"))
         self.assertFalse(standards_changelog.skip_changelog_note("根据行为生成新版"))
 
+    def test_prune_noise_versions_import_safe(self) -> None:
+        from qr import governance
+
+        # 不应因 standards_changelog 未导入而 NameError
+        n = governance.prune_noise_versions()
+        self.assertIsInstance(n, int)
+
     def test_diff_line_add_delete(self) -> None:
         diff = standards_changelog.diff_text("a\nb", "a\nc")
         self.assertIn("c", diff["added"])

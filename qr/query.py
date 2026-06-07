@@ -246,10 +246,6 @@ def search(
     return _rerank_hits(merged, question, k)
 
 
-def list_projects(limit: int = 50) -> list[str]:
-    return workspace_list_projects(limit)["projects"]
-
-
 def workspace_list_projects(limit: int = 200) -> dict:
     from . import workspace
 
@@ -396,6 +392,7 @@ def ask_stream(
     project: str | None = None,
     category: str | None = None,
 ) -> Iterator[dict]:
+    yield {"type": "status", "text": "正在检索本地上下文…"}
     ctx = prepare_ask(question, k, model, web, history, project, category=category)
     yield {
         "type": "meta",
@@ -404,9 +401,11 @@ def ask_stream(
         "similar": ctx["similar"],
     }
     if ctx["early_answer"]:
+        yield {"type": "status", "text": "正在生成回答…"}
         yield {"type": "token", "text": ctx["early_answer"]}
         yield {"type": "done", "answer": ctx["early_answer"]}
         return
+    yield {"type": "status", "text": "正在生成回答…"}
     buf: list[str] = []
     for token in Ollama().generate_stream(ctx["prompt"], system=ctx["system"], model=model):
         buf.append(token)

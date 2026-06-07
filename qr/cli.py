@@ -271,16 +271,15 @@ def ingest(source: str = typer.Option("all", help="all 或 shell/git/files/curso
         console.print(f"[green]✓[/] {k}: 新增/更新 {v} 条事件")
 
 
-@app.command()
 def backfill_cmd(
     days: int = typer.Option(365, "--days", help="回溯天数，默认近一年"),
-    source: str = typer.Option("all", help="all 或 shell/git/files/cursor"),
+    source: str = typer.Option("all", help="all 或 shell/git/files/cursor/notes（逗号分隔）"),
 ):
-    """全量补录：按真实时间倒追 shell / git / 文件 / Cursor 等开发行为。"""
+    """全量补录：按真实时间倒追 shell / git / 文件 / Cursor / 笔记等开发行为。"""
     db.init_db()
     sources = backfill.BACKFILL_SOURCES if source == "all" else [s.strip() for s in source.split(",")]
     with db.session() as conn:
-        with console.status(f"补录近 {days} 天行为中（shell / git / 文件 / Cursor）..."):
+        with console.status(f"补录近 {days} 天行为中（shell / git / 文件 / Cursor / 笔记）..."):
             res = backfill.run(conn, days=days, sources=sources)
     console.print(f"[dim]时间范围: {res['since']} 至今[/]")
     for k in backfill.BACKFILL_SOURCES:
@@ -339,8 +338,10 @@ def ask(text: str = typer.Argument(..., help="你的问题"),
         model: str = typer.Option("", "--model", "-m", help="问答模型，见 qr ask --list-models"),
         deep: bool = typer.Option(False, "--deep", help="[兼容] 等同选默认推理模型"),
         web: bool = typer.Option(False, "--web", help="联网搜索（默认百度，被拦时回退必应）"),
+        no_stream: bool = typer.Option(
+            False, "--no-stream", help="等待完整回答后再显示（并渲染 Markdown）"),
         list_models: bool = typer.Option(False, "--list-models", help="列出可选问答模型")):
-    """基于项目内容（可选联网）用本地大模型回答问题。"""
+    """基于项目内容（可选联网）用本地大模型回答问题（默认流式输出）。"""
     from . import models as qr_models
 
     if list_models:
@@ -358,27 +359,69 @@ def ask(text: str = typer.Argument(..., help="你的问题"),
         resolved = qr_models.resolve_ask_model(model or None, deep_legacy=deep)
     except ValueError as e:
         console.print(f"[red]✗[/] {e}"); raise typer.Exit(1)
+
+    proj = project or None
+    cat = category or None
+
+    def _print_sources(hits, web_results):
+        if hits:
+            console.print("\n[dim]本地来源:[/]")
+            for i, h in enumerate(hits, 1):
+                console.print(f"  [dim]{i}. {h['path']} ({h['score']:.3f})[/]")
+        if web_results:
+            console.print("\n[dim]网络来源:[/]")
+            for i, w in enumerate(web_results, 1):
+                console.print(f"  [dim]{i}. {w['title']} — {w['url']} [{w['engine']}][/]")
+
+    if no_stream:
+        try:
+            bits = ["检索"]
+            if web:
+                bits.append("联网搜索")
+            bits.append(f"模型 {qr_models.model_label(resolved)}")
+            with console.status(" + ".join(bits) + "中..."):
+                answer, hits, web_results = query.ask(
+                    text, k, model=resolved, web=web,
+                    project=proj, category=cat,
+                )
+        except OllamaError as e:
+            console.print(f"[red]✗[/] {e}"); raise typer.Exit(1)
+        console.print(Markdown(answer))
+        _print_sources(hits, web_results)
+        return
+
+    hits: list = []
+    web_results: list = []
+    answer = ""
     try:
-        bits = ["检索"]
-        if web:
-            bits.append("联网搜索")
-        bits.append(f"模型 {qr_models.model_label(resolved)}")
-        with console.status(" + ".join(bits) + "中..."):
-            answer, hits, web_results = query.ask(
-                text, k, model=resolved, web=web,
-                project=project or None, category=category or None,
-            )
+        for ev in query.ask_stream(
+            text, k, model=resolved, web=web, project=proj, category=cat,
+        ):
+            if ev["type"] == "status":
+                console.print(f"[dim]{ev.get('text', '')}[/]")
+            elif ev["type"] == "meta":
+                hits = ev.get("hits") or []
+                web_results = ev.get("web") or []
+                similar = ev.get("similar") or []
+                if similar:
+                    console.print(
+                        "[dim]相似历史: "
+                        + " · ".join(s["title"] for s in similar[:3])
+                        + "[/]"
+                    )
+            elif ev["type"] == "token":
+                chunk = ev.get("text", "")
+                answer += chunk
+                sys.stdout.write(chunk)
+                sys.stdout.flush()
+            elif ev["type"] == "done":
+                answer = ev.get("answer") or answer
     except OllamaError as e:
-        console.print(f"[red]✗[/] {e}"); raise typer.Exit(1)
-    console.print(Markdown(answer))
-    if hits:
-        console.print("\n[dim]本地来源:[/]")
-        for i, h in enumerate(hits, 1):
-            console.print(f"  [dim]{i}. {h['path']} ({h['score']:.3f})[/]")
-    if web_results:
-        console.print("\n[dim]网络来源:[/]")
-        for i, w in enumerate(web_results, 1):
-            console.print(f"  [dim]{i}. {w['title']} — {w['url']} [{w['engine']}][/]")
+        console.print(f"\n[red]✗[/] {e}"); raise typer.Exit(1)
+    if answer:
+        sys.stdout.write("\n")
+        sys.stdout.flush()
+    _print_sources(hits, web_results)
 
 
 @app.command()
@@ -680,7 +723,6 @@ def track_once():
     console.print(s)
 
 
-@app.command()
 def usage_cmd(period: str = typer.Option("day", "--period", help="day/week/month")):
     """查看应用使用统计（时长/占比/频率）。"""
     db.init_db()
@@ -1323,7 +1365,6 @@ def schedule(action: str = typer.Argument("install", help="install / uninstall /
         console.print("[red]未知操作，使用 install / uninstall / status[/]")
 
 
-@app.command()
 def digest_cmd(days: int = typer.Option(1, "--days", help="回溯天数")):
     """生成每日洞察摘要（行为 + 应用 + 项目）。"""
     r = digest.generate(days=days)
@@ -1334,7 +1375,6 @@ def digest_cmd(days: int = typer.Option(1, "--days", help="回溯天数")):
 app.command(name="digest")(digest_cmd)
 
 
-@app.command()
 def compliance_cmd():
     """检查索引内各项目是否符合个人规范结构。"""
     rows = compliance.scan_index_roots()
@@ -1351,7 +1391,6 @@ def compliance_cmd():
 app.command(name="compliance")(compliance_cmd)
 
 
-@app.command()
 def graph_cmd(limit: int = typer.Option(40, "-n")):
     """输出项目—来源—技术栈知识图谱摘要。"""
     g = compliance.knowledge_graph(limit=limit)
@@ -1400,7 +1439,7 @@ def project(
             console.print(f"  {f['key']}: {f['value']}")
 
 
-@app.command()
+@app.command(name="facts")
 def facts_cmd(
     action: str = typer.Argument("list", help="list | sync"),
     project: str = typer.Option(None, "--project"),
