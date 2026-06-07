@@ -218,6 +218,17 @@ def init_db() -> None:
 
         prompt_guides.ensure_schema(conn)
         project_relations.ensure_schema(conn)
+        from . import symbol_index, timeline_search
+
+        symbol_index.ensure_schema(conn)
+        timeline_search.ensure_schema(conn)
+        try:
+            ev_n = conn.execute("SELECT COUNT(*) c FROM events").fetchone()["c"]
+            fts_n = conn.execute("SELECT COUNT(*) c FROM events_fts").fetchone()["c"]
+            if ev_n and not fts_n:
+                timeline_search.rebuild(conn)
+        except sqlite3.OperationalError:
+            pass
         conn.commit()
         init_fts(conn)
         if vec_available():
@@ -272,6 +283,30 @@ def set_state(conn: sqlite3.Connection, key: str, value: str) -> None:
     )
 
 
+def _fts_sync_event(
+    conn: sqlite3.Connection,
+    *,
+    uid: str,
+    source: str,
+    project: str | None,
+    title: str,
+    content: str,
+) -> None:
+    try:
+        from . import timeline_search
+
+        timeline_search.index_event(
+            conn,
+            uid=uid,
+            source=source,
+            project=project,
+            title=title,
+            content=content,
+        )
+    except Exception:
+        pass
+
+
 def insert_event(conn: sqlite3.Connection, *, uid: str, ts: int, source: str,
                  title: str = "", content: str = "", project: str | None = None,
                  meta: str | None = None) -> bool:
@@ -280,6 +315,10 @@ def insert_event(conn: sqlite3.Connection, *, uid: str, ts: int, source: str,
         "VALUES(?,?,?,?,?,?,?)",
         (uid, ts, source, project, title, content, meta),
     )
+    if cur.rowcount:
+        _fts_sync_event(
+            conn, uid=uid, source=source, project=project, title=title, content=content,
+        )
     return cur.rowcount > 0
 
 
@@ -293,6 +332,9 @@ def upsert_event(conn: sqlite3.Connection, *, uid: str, ts: int, source: str,
         "ts=excluded.ts, source=excluded.source, project=excluded.project, "
         "title=excluded.title, content=excluded.content, meta=excluded.meta",
         (uid, ts, source, project, title, content, meta),
+    )
+    _fts_sync_event(
+        conn, uid=uid, source=source, project=project, title=title, content=content,
     )
 
 

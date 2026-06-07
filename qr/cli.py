@@ -219,21 +219,80 @@ def doctor():
 @app.command()
 def backup(
     dest: str = typer.Option("", "--dest", help="备份路径，默认 ~/.qr/backups/qr-时间戳.db"),
+    restore: str = typer.Option("", "--restore", help="从指定备份恢复 qr.db"),
+    verify: str = typer.Option("", "--verify", help="校验备份文件是否有效"),
+    list_backups: bool = typer.Option(False, "--list", help="列出备份文件"),
 ):
-    """备份知识库数据库。"""
-    db.init_db()
-    import shutil
-    from datetime import datetime
+    """备份 / 恢复 / 校验知识库数据库。"""
+    from . import backup_ops
 
-    if dest:
-        out = Path(dest).expanduser()
-    else:
-        d = config.QR_HOME / "backups"
-        d.mkdir(parents=True, exist_ok=True)
-        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        out = d / f"qr-{stamp}.db"
-    shutil.copy2(config.DB_PATH, out)
-    console.print(f"[green]✓[/] 已备份到 {out}")
+    db.init_db()
+    if list_backups:
+        rows = backup_ops.list_backup_files()
+        if not rows:
+            console.print("[dim]尚无备份[/]")
+            return
+        for p in rows:
+            v = backup_ops.verify_backup(p)
+            mark = "[green]✓[/]" if v.get("ok") else "[red]✗[/]"
+            console.print(f"{mark} {p.name} · {v.get('size_mb', '?')} MB · {v.get('mtime', '')}")
+        return
+    if verify:
+        rep = backup_ops.verify_backup(verify)
+        if rep.get("ok"):
+            console.print(f"[green]✓[/] 备份有效 · events={rep.get('events')} documents={rep.get('documents')}")
+        else:
+            console.print(f"[red]✗[/] {rep.get('error', '无效')}")
+            raise typer.Exit(1)
+        return
+    if restore:
+        rep = backup_ops.restore_backup(restore)
+        if not rep.get("ok"):
+            console.print(f"[red]✗[/] {rep.get('error', '恢复失败')}")
+            raise typer.Exit(1)
+        console.print(f"[green]✓[/] 已从 {rep['restored_from']} 恢复")
+        if rep.get("safety_copy"):
+            console.print(f"[dim]当前库已另存: {rep['safety_copy']}[/]")
+        return
+    result = backup_ops.run_backup(dest)
+    console.print(f"[green]✓[/] 已备份到 {result['path']}")
+
+
+@app.command(name="index-health")
+def index_health_cmd(
+    cleanup: bool = typer.Option(False, "--cleanup", help="清理源文件已消失的孤儿索引"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="仅统计不删除"),
+):
+    """索引健康检查与孤儿清理。"""
+    from . import index_health
+
+    db.init_db()
+    with db.session() as conn:
+        rep = index_health.scan(conn)
+    console.print(f"文档 {rep['documents']} · 失效路径 {rep['missing_files']} · Cursor 转录 {rep['stale_cursor']}")
+    for s in rep.get("missing_samples", [])[:5]:
+        console.print(f"  [dim]· {s['path']}[/]")
+    if cleanup or dry_run:
+        with db.session() as conn:
+            stats = index_health.cleanup_orphans(conn, dry_run=dry_run)
+        action = "将清理" if dry_run else "已清理"
+        console.print(f"[green]✓[/] {action} 文档 {stats['documents_removed']} · 块 {stats['chunks_removed']}")
+
+
+@app.command(name="changelog")
+def changelog_cmd(
+    project: str = typer.Argument(..., help="项目 ID，如 dev/qr"),
+    days: int = typer.Option(7, "--days"),
+):
+    """生成项目变更简报。"""
+    from . import changelog
+
+    r = changelog.generate(project, days=days)
+    if r.get("error"):
+        console.print(f"[red]{r['error']}[/]")
+        raise typer.Exit(1)
+    console.print(f"[green]✓[/] {r['path']}")
+    console.print(r["content"][:2000])
 
 
 @app.command()
@@ -268,7 +327,14 @@ def ingest(source: str = typer.Option("all", help="all 或 shell/git/files/curso
         with console.status("采集中..."):
             res = collectors.run(conn, sources)
     for k, v in res.items():
+        if k in ("index_files", "index_chunks", "alerts"):
+            continue
         console.print(f"[green]✓[/] {k}: 新增/更新 {v} 条事件")
+    if res.get("index_files") is not None:
+        console.print(
+            f"[green]✓[/] 增量索引: {res.get('index_files', 0)} 文件, "
+            f"{res.get('index_chunks', 0)} 向量块",
+        )
 
 
 def backfill_cmd(
@@ -290,14 +356,34 @@ def backfill_cmd(
 
 
 @app.command()
-def index(reindex: bool = typer.Option(False, "--reindex", help="忽略缓存全部重建")):
+def index(
+    reindex: bool = typer.Option(False, "--reindex", help="忽略缓存全部重建"),
+    since_days: float | None = typer.Option(
+        None, "--since-days", help="仅索引近 N 天内修改过的文件",
+    ),
+    since_hours: float | None = typer.Option(
+        None, "--since-hours", help="仅索引近 N 小时内修改过的文件",
+    ),
+    incremental: bool = typer.Option(
+        False, "--incremental", help="仅索引上次 ingest/index 之后变更的文件",
+    ),
+):
     """对索引目录中的项目内容建立语义索引。"""
     db.init_db()
     roots = config.expand_paths(config.load_config()["index_roots"])
     console.print("索引目录: " + ", ".join(str(r) for r in roots))
+    mode = "全量重建" if reindex else (
+        "增量" if incremental or since_days or since_hours else "常规"
+    )
+    console.print(f"[dim]模式: {mode}[/]")
     try:
         with console.status("嵌入中（首次或大项目可能较慢）..."):
-            stats = indexer.index(reindex=reindex)
+            stats = indexer.index(
+                reindex=reindex,
+                since_days=since_days,
+                since_hours=since_hours,
+                incremental=incremental,
+            )
     except OllamaError as e:
         console.print(f"[red]✗[/] {e}"); raise typer.Exit(1)
     removed = stats.get("documents_removed", 0)
@@ -306,6 +392,34 @@ def index(reindex: bool = typer.Option(False, "--reindex", help="忽略缓存全
         f"[green]✓[/] 新建/更新文档 {stats['files']}，向量块 {stats['chunks']}，"
         f"跳过 {stats['skipped']}（含 ~/.qr 配置）{extra}"
     )
+
+
+@app.command("symbol")
+def symbol_cmd(
+    name: str = typer.Argument(..., help="函数 / 类 / 符号名"),
+    project: str = typer.Option("", "--project", "-p", help="限定项目 dev/qr"),
+    limit: int = typer.Option(20, "-n", help="最多条数"),
+):
+    """按符号名精确查找定义位置（需先 qr index）。"""
+    from . import symbol_index
+
+    db.init_db()
+    hits = symbol_index.search(name, project=project or None, limit=limit)
+    if not hits:
+        console.print(f"[yellow]![/] 未找到符号 [bold]{name}[/]")
+        raise typer.Exit(1)
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("符号")
+    table.add_column("类型")
+    table.add_column("行")
+    table.add_column("项目")
+    table.add_column("路径")
+    for h in hits:
+        table.add_row(
+            h["name"], h["kind"], str(h["line"]),
+            h.get("project") or "", h["path"],
+        )
+    console.print(table)
 
 
 def query_(text: str = typer.Argument(..., help="检索内容"),
@@ -1074,10 +1188,17 @@ def update(
     cfg = config.load_config()
     with db.session() as conn:
         res = collectors.run(conn, ALL_SOURCES)
-    console.print("采集: " + ", ".join(f"{k}={v}" for k, v in res.items()))
+    ev = {k: v for k, v in res.items() if k not in ("index_files", "index_chunks")}
+    console.print("采集: " + ", ".join(f"{k}={v}" for k, v in ev.items()))
     try:
-        stats = indexer.index()
-        console.print(f"索引: 文档 {stats['files']}, 块 {stats['chunks']}")
+        if res.get("index_files") is not None:
+            console.print(
+                f"索引(增量): 文档 {res.get('index_files', 0)}, "
+                f"块 {res.get('index_chunks', 0)}",
+            )
+        else:
+            stats = indexer.index()
+            console.print(f"索引: 文档 {stats['files']}, 块 {stats['chunks']}")
         if summary_period:
             out = summary.generate(summary_period)
             console.print(f"总结: {out}")

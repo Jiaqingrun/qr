@@ -21,3 +21,12 @@
 - 最小 diff；不提交除非用户要求
 - 时间线 cursor 事件按 file 打开归档路径，不用弹窗
 - **Web UI**：全标签 `view--fill` 全宽布局；见 `docs/WEB_UI_LAYOUT.md`
+
+### 改动后必做（知识库程序变更）
+1. **文档与规则**：自行判断并同步 `README.md`、`docs/USE_CASES.md`；新命令/行为/API/MCP/Web 页须写入；必要时更新 `PROJECT.md`、`.cursor/rules/10-project.mdc`、`docs/CODE_AUDIT_CHECKLIST.md`
+2. **全量自检**（有问题必须修完再继续）：
+   - `pip install -e ~/QR/dev/qr`
+   - `python -m compileall qr tests`
+   - `/opt/anaconda3/envs/qr/bin/python -m unittest discover -s tests -v`
+   - `qr doctor`；涉及 Web 则 `qr web --restart`
+3. **清理无效代码**：删除未使用函数/导入、重复逻辑、过时注释；不保留死代码

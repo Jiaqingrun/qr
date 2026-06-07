@@ -77,6 +77,7 @@
 - 索引默认仅 `~/QR`（见 `config.json` → `index_roots`）
 
 ## AI 协作（本项目）
-- 先读 `README.md`、`docs/USE_CASES.md`
+- 先读 `README.md`、`docs/USE_CASES.md`、`docs/WEB_UI_LAYOUT.md`
 - 最小 diff；不提交除非用户要求
 - 时间线 cursor 事件按 file 打开归档路径，不用弹窗
+- **知识库程序改动后**：自行判断并同步文档与规则；全量自检（compileall + unittest + doctor）；修复问题并清理无效代码（见 `PROJECT.md`）

@@ -12,7 +12,7 @@
 **推荐操作**  
 - 一次性：`qr shell enable` → `qr backfill --days 90` → `qr schedule install`  
 - 每天自动：`qr update`（采集 + 索引）  
-- Web → **时间线**：按来源筛选；点条目可看详情  
+- Web → **时间线**：按来源筛选；搜索框全文检索；点条目可看详情与**相关事件**  
 
 **细节**  
 - Cursor 问话会进时间线，同时进入 **引导语收件箱**（见第 11 节）  
@@ -33,8 +33,11 @@ qr query "database locked" -k 8                   # 只检索、不生成
 ```
 
 **细节**  
+- Web **问答**：顶部 **接着干** 卡片汇总活跃项目、Cursor 话题、Git 与 README 待办  
 - Web **问答**：选模型、限定分类/项目、可开联网  
 - 新项目：`qr index` 后再问；大仓库首次索引较慢  
+- 日常增量：`qr ingest` / `qr update` 采集后会自动增量索引；也可 `qr index --incremental`  
+- 符号定位：`qr symbol <名称>` 或 `qr query <符号名>`（精确标识符会优先命中定义行）  
 - 稳定配置事实：`qr facts sync`（端口、embed 模型等）  
 
 ---
@@ -46,6 +49,7 @@ qr query "database locked" -k 8                   # 只检索、不生成
 
 **推荐操作**  
 - 配置 MCP：`qr mcp`（stdio）  
+- 工具：`qr_search` / `qr_ask` / `qr_project` / `qr_facts` / `qr_log_decision` / `qr_timeline` / `qr_prompts` / `qr_compliance`  
 - 对话示例：「用 qr_project 看 dev/qr 最近两周在改什么，再按我的规范建议目录结构。」  
 
 **细节**  
@@ -156,10 +160,16 @@ qr desktop --install           # 桌面图标开 Web
 ```bash
 qr export-obsidian
 qr backup
+qr backup --list
+qr backup --verify ~/.qr/backups/qr-时间戳.db
+qr backup --restore ~/.qr/backups/qr-时间戳.db   # 恢复前自动另存 qr-pre-restore-*.db
+qr index-health
+qr index-health --cleanup    # 清理源文件已消失的向量索引
 ```
 
 **细节**  
 - 引导语 Markdown 在 `~/.qr/prompts/`，`qr ingest` 会同步进笔记事件  
+- `qr doctor` 会提示索引失效路径与备份状态；Web **运维** 页也可一键检查/清理  
 
 ---
 
@@ -213,6 +223,26 @@ qr prompts types
 - 保存后导出 `~/.qr/prompts/<类型slug>/0001-标题.md`，参与笔记索引，可用 `qr ask` 检索  
 - 配置项（`~/.qr/config.json`）：`prompt_guides_auto_sync`、`prompt_guides_dir`  
 - 规范要求：高价值 Cursor 对话应合并为引导语，避免重复劳动（见 `standards/STANDARDS.md`）  
+
+---
+
+## 12. 项目简报与主动提醒
+
+**能做什么**  
+- 单项目 **变更简报**（Git 提交、Cursor 话题、文件改动、合规、稳定事实）  
+- **Cursor 会话自动摘要**写入 `~/.qr/notes/`，进入时间线与检索  
+- **主动提醒**：项目休眠、散落目录、合规待改进、RAG 命中率下降（`digest-notify` 推送）  
+
+**推荐操作**  
+```bash
+qr changelog dev/qr --days 7
+qr digest-notify              # 洞察 + 简报摘要 + macOS 通知
+```
+
+**细节**  
+- 简报保存：`~/.qr/logs/changelog-<项目>-<日期>.md`  
+- 提醒列表：`~/.qr/logs/alerts-latest.json`  
+- 时间线 Web 页支持关键词搜索（`GET /api/events?q=`）  
 
 ---
 

@@ -5,7 +5,7 @@ from typing import Iterator
 
 import numpy as np
 
-from . import chat, config, db, facts, hybrid, retrieval_meta, websearch
+from . import activity_context, chat, config, db, facts, hybrid, retrieval_meta, websearch
 from .ollama_client import Ollama
 from .vectors import cosine_topk, from_blob, to_blob
 
@@ -218,18 +218,55 @@ def _search_numpy(
     } for i, s in hits]
 
 
+_IDENT_QUERY = re.compile(r"^[\w.]{3,80}$")
+
+
+def _symbol_hits(
+    question: str,
+    project: str | None,
+    category: str | None,
+    limit: int = 4,
+) -> list[dict]:
+    q = question.strip()
+    if not _IDENT_QUERY.match(q):
+        return []
+    from . import symbol_index
+
+    rows = symbol_index.search(q, project=project, limit=limit * 2)
+    out: list[dict] = []
+    for r in rows:
+        if category:
+            pl = (r.get("project") or "").lower()
+            path_l = (r["path"] or "").lower()
+            cl = category.lower()
+            if not (pl.startswith(f"{cl}/") or f"/qr/{cl}/" in path_l):
+                continue
+        out.append({
+            "chunk_id": 0,
+            "score": 0.92,
+            "path": r["path"],
+            "project": r.get("project"),
+            "text": f"[符号 {r['kind']}] {r['name']} — 第 {r['line']} 行",
+            "symbol": True,
+        })
+        if len(out) >= limit:
+            break
+    return out
+
+
 def search(
     question: str,
     k: int = 6,
     project: str | None = None,
     category: str | None = None,
 ) -> list[dict]:
+    sym = _symbol_hits(question, project, category)
     qvec = Ollama().embed(question)
     fetch_k = max(k * 4, 24)
     with db.session() as conn:
         has = conn.execute("SELECT COUNT(*) c FROM chunks").fetchone()["c"]
         if not has:
-            return []
+            return sym[:k]
         if db.vec_available():
             vec_hits = _search_vec(conn, qvec, fetch_k, project, category=category)
         else:
@@ -243,7 +280,57 @@ def search(
 
     for h in merged:
         h["project"] = workspace.sanitize_display_project(h.get("project"))
-    return _rerank_hits(merged, question, k)
+    cfg = config.load_config()
+    expanded = _parent_expand(merged, int(cfg.get("parent_expand_chars", 400)))
+    from . import reranker
+
+    ranked = _rerank_hits(expanded, question, max(k * 2, 12))
+    merged_ranked = reranker.rerank_hits(
+        question, ranked, k, enabled=bool(cfg.get("rerank_enabled", True)),
+    )
+    if not sym:
+        return merged_ranked
+    seen = {h["path"] for h in sym}
+    rest = [h for h in merged_ranked if h.get("path") not in seen]
+    return (sym + rest)[:k]
+
+
+def _parent_expand(hits: list[dict], extra_chars: int) -> list[dict]:
+    """为命中 chunk 附加同文档相邻上下文。"""
+    if not hits or extra_chars <= 0:
+        return hits
+    out: list[dict] = []
+    with db.session() as conn:
+        for h in hits:
+            nh = dict(h)
+            row = conn.execute(
+                "SELECT c.ordinal, c.text, d.path FROM chunks c "
+                "JOIN documents d ON c.doc_id=d.id WHERE c.id=?",
+                (h.get("chunk_id"),),
+            ).fetchone()
+            if not row:
+                out.append(nh)
+                continue
+            ord_i = int(row["ordinal"])
+            prev_t = conn.execute(
+                "SELECT text FROM chunks WHERE doc_id=("
+                "SELECT doc_id FROM chunks WHERE id=?) AND ordinal=?",
+                (h["chunk_id"], ord_i - 1),
+            ).fetchone()
+            next_t = conn.execute(
+                "SELECT text FROM chunks WHERE doc_id=("
+                "SELECT doc_id FROM chunks WHERE id=?) AND ordinal=?",
+                (h["chunk_id"], ord_i + 1),
+            ).fetchone()
+            parts = []
+            if prev_t:
+                parts.append((prev_t["text"] or "")[-extra_chars // 2:])
+            parts.append(h.get("text", ""))
+            if next_t:
+                parts.append((next_t["text"] or "")[: extra_chars // 2])
+            nh["text"] = "\n".join(p for p in parts if p).strip()
+            out.append(nh)
+    return out
 
 
 def workspace_list_projects(limit: int = 200) -> dict:
@@ -272,6 +359,7 @@ def prepare_ask(
 
     similar = chat.find_similar_questions(question, limit=3)
     facts_block = facts.prompt_block(project)
+    activity_block = activity_context.prompt_block(question)
 
     mismatch = _project_context_mismatch(question, hits)
     if mismatch and not web_results and not history:
@@ -296,7 +384,7 @@ def prepare_ask(
             "early_answer": "当前检索结果缺少可直接判断前端框架的证据（如 package.json、next/vite 配置或前端源码），无法确定。",
         }
 
-    if not hits and not web_results and not history:
+    if not hits and not web_results and not history and not activity_block:
         return {
             "prompt": "",
             "system": SYSTEM,
@@ -308,6 +396,8 @@ def prepare_ask(
         }
 
     parts = []
+    if activity_block:
+        parts.append("【近期行为摘要】\n" + activity_block)
     if facts_block:
         parts.append(facts_block)
     if similar:
@@ -354,7 +444,12 @@ def prepare_ask(
     prompt = (
         "\n\n".join(parts)
         + f"\n\n【当前问题】\n{question}\n\n"
-        "请结合对话历史（若有）与以上信息回答，并标注引用的来源编号（本地用[来源N]，网络用[网络N]）。"
+        + (
+            "请依据【近期行为摘要】归纳用户最近做了哪些事，按主题分条说明，"
+            "可提及主要项目、Git/Cursor/Shell 与应用使用；数据不足处如实说明。"
+            if activity_block
+            else "请结合对话历史（若有）与以上信息回答，并标注引用的来源编号（本地用[来源N]，网络用[网络N]）。"
+        )
     )
     return {
         "prompt": prompt,

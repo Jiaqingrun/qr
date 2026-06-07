@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sys
 
-from qr import db, facts, project_panel, query, retrieval_meta
+from qr import compliance, db, facts, project_panel, prompt_guides, query, retrieval_meta, timeline_search
 
 
 def _send(obj: dict) -> None:
@@ -88,6 +88,35 @@ def _tools_list():
                     "required": ["text"],
                 },
             },
+            {
+                "name": "qr_timeline",
+                "description": "搜索或浏览 QR本地知识库 行为时间线",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "q": {"type": "string", "description": "全文检索关键词"},
+                        "days": {"type": "integer", "default": 14},
+                        "source": {"type": "string"},
+                        "limit": {"type": "integer", "default": 20},
+                    },
+                },
+            },
+            {
+                "name": "qr_prompts",
+                "description": "列出 QR本地知识库 引导语或收件箱片段",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "inbox": {"type": "boolean", "default": False},
+                        "limit": {"type": "integer", "default": 15},
+                    },
+                },
+            },
+            {
+                "name": "qr_compliance",
+                "description": "扫描 ~/QR 工作区项目合规（README / PROJECT.md / 规则）",
+                "inputSchema": {"type": "object", "properties": {}},
+            },
         ],
     }
 
@@ -135,6 +164,47 @@ def _call_tool(name: str, arguments: dict) -> dict:
         with db.session() as conn:
             ok = notes.add_note(conn, arguments["text"], kind="decision")
         return {"content": [{"type": "text", "text": "已记录决策" if ok else "记录失败"}]}
+    if name == "qr_timeline":
+        days = int(arguments.get("days", 14))
+        limit = int(arguments.get("limit", 20))
+        since = db.now() - days * 86400
+        q = (arguments.get("q") or "").strip()
+        with db.session() as conn:
+            if q:
+                hits = timeline_search.search(
+                    conn, q, limit=limit, source=arguments.get("source"),
+                    date_from_ts=since,
+                )
+                lines = [
+                    f"- {h.get('ts', '')} [{h['source']}] {h.get('title', '')}"
+                    for h in hits
+                ]
+                text = "\n".join(lines) or "无匹配"
+            else:
+                rows = conn.execute(
+                    "SELECT ts, source, title, project FROM events WHERE ts>=? "
+                    "ORDER BY ts DESC LIMIT ?",
+                    (since, limit),
+                ).fetchall()
+                text = "\n".join(
+                    f"- {r['ts']} [{r['source']}] {r['title']} ({r['project'] or ''})"
+                    for r in rows
+                ) or "无事件"
+        return {"content": [{"type": "text", "text": text}]}
+    if name == "qr_prompts":
+        with db.session() as conn:
+            prompt_guides.ensure_schema(conn)
+            if arguments.get("inbox"):
+                groups = prompt_guides.list_inbox_groups(conn, limit=int(arguments.get("limit", 15)))
+                text = json.dumps(groups, ensure_ascii=False, indent=2)
+            else:
+                guides = prompt_guides.list_guides(conn, limit=int(arguments.get("limit", 15)))
+                text = json.dumps(guides, ensure_ascii=False, indent=2)
+        return {"content": [{"type": "text", "text": text}]}
+    if name == "qr_compliance":
+        rows = compliance.scan_index_roots()
+        text = json.dumps(rows[:20], ensure_ascii=False, indent=2)
+        return {"content": [{"type": "text", "text": text}]}
     return {"content": [{"type": "text", "text": f"未知工具: {name}"}], "isError": True}
 
 

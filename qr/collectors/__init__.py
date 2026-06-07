@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from .. import db
 from . import cursor, files, gitlog, notes, shell
 
 COLLECTORS = {
@@ -33,4 +34,22 @@ def run(
 
         pg = prompt_guides.sync_cursor_inbox(conn)
         result["prompt_fragments"] = pg.get("new", 0)
+    if not backfill:
+        from .. import proactive
+
+        alerts = proactive.collect_all(conn)
+        if alerts:
+            proactive.persist_digest(alerts)
+            result["alerts"] = len(alerts)
+        db.set_state(conn, "ingest_last_ts", str(db.now()))
+        cfg = __import__("qr.config", fromlist=["config"]).load_config()
+        if cfg.get("index_incremental_after_ingest", True):
+            try:
+                from .. import indexer
+
+                ix = indexer.index(incremental=True)
+                result["index_files"] = ix.get("files", 0)
+                result["index_chunks"] = ix.get("chunks", 0)
+            except Exception:
+                pass
     return result

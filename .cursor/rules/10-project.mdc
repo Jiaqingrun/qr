@@ -31,3 +31,12 @@ alwaysApply: true
 - 最小 diff；不提交除非用户要求
 - 时间线 cursor 事件按 file 打开归档路径，不用弹窗
 - 改版 `qr/static/index.html` 须遵守 WEB_UI_LAYOUT（`page-ops` / `page-body` / `split-shell`）
+
+### 知识库程序每次改动后必做
+1. **文档与规则**：自行判断是否需要更新 `README.md`、`docs/USE_CASES.md`；新增命令/CLI/API/MCP/Web 能力须同步文档；必要时改 `PROJECT.md`、本规则、`docs/CODE_AUDIT_CHECKLIST.md`
+2. **全量自检**（失败须修复后再结束）：
+   - `pip install -e ~/QR/dev/qr`
+   - `python -m compileall qr tests`
+   - conda `qr` 环境：`python -m unittest discover -s tests -v`
+   - `qr doctor`；动 Web 则 `qr web --restart`
+3. **清理无效代码**：移除未使用导入/函数、重复实现、死代码

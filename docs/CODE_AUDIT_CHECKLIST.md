@@ -5,7 +5,7 @@
 ## 1. 构建与静态检查
 
 - [x] `python -m compileall qr tests` 无语法错误
-- [x] `python -m unittest discover -s tests -v` 通过（17 tests）
+- [x] `python -m unittest discover -s tests -v` 通过（40 tests）
 - [x] `conda activate qr` 后 `python -c "from qr import web"` 可导入（勿用旧环境名 `kb`）
 
 ## 2. 数据与安全
@@ -59,6 +59,12 @@
 ## 9. 回归脚本（可选）
 
 - [x] `python -m qr.eval_suite`（若配置 Ollama）抽样通过
+
+## 10. 文档与规则同步（知识库改动后）
+
+- [ ] 新 CLI / API / MCP / Web 能力已写入 `README.md` 与 `docs/USE_CASES.md`
+- [ ] 必要时更新 `PROJECT.md`、`.cursor/rules/10-project.mdc`
+- [ ] 已移除未使用代码（死函数、冗余导入）
 
 ---
 

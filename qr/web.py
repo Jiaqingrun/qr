@@ -148,6 +148,9 @@ class StandardsBody(BaseModel):
 
 class IndexBody(BaseModel):
     reindex: bool = False
+    incremental: bool = False
+    since_days: float | None = None
+    since_hours: float | None = None
 
 
 class EvalActionBody(BaseModel):
@@ -329,9 +332,67 @@ def events(
     date_from: str | None = None,
     date_to: str | None = None,
     sort: str = "time",
+    q: str | None = None,
 ):
     limit = max(1, min(limit, 100))
     page = max(1, page)
+
+    if q and q.strip():
+        from . import event_links, timeline_search
+
+        try:
+            d_from_ts = _day_start(_parse_day(date_from)) if date_from else None
+            d_to_ts = _day_end_exclusive(_parse_day(date_to)) if date_to else None
+        except ValueError as e:
+            return JSONResponse({"error": str(e)}, status_code=400)
+        with db.session() as conn:
+            items = timeline_search.search(
+                conn, q.strip(), limit=limit, source=source or None,
+                date_from_ts=d_from_ts, date_to_ts=d_to_ts,
+            )
+            out = []
+            for it in items:
+                row = conn.execute(
+                    "SELECT uid, ts, source, project, title, content, meta FROM events WHERE uid=?",
+                    (it["uid"],),
+                ).fetchone()
+                if not row:
+                    continue
+                tlabel = timeutil.format_local(row["ts"])
+                item = {
+                    "uid": row["uid"],
+                    "ts": row["ts"],
+                    "time": tlabel,
+                    "source": row["source"],
+                    "project": workspace.sanitize_display_project(row["project"]),
+                    "title": row["title"],
+                    "content": row["content"],
+                    "score": it.get("score"),
+                }
+                link = links.event_link(
+                    row["source"], row["title"], row["content"], row["project"],
+                    uid=row["uid"], meta=row["meta"],
+                )
+                if link:
+                    item["link"] = link
+                rel = event_links.related_for_event(
+                    conn, uid=row["uid"], source=row["source"],
+                    title=row["title"] or "", content=row["content"] or "",
+                    meta=row["meta"], ts=int(row["ts"]),
+                )
+                if rel:
+                    item["related"] = rel
+                out.append(item)
+        return {
+            "items": out,
+            "total": len(out),
+            "page": 1,
+            "limit": limit,
+            "pages": 1,
+            "q": q,
+            "source": source,
+            "sort": sort,
+        }
 
     where: list[str] = []
     args: list = []
@@ -378,55 +439,67 @@ def events(
     offset = (page - 1) * limit
 
     order = _EVENT_ORDER_ACTIVITY if sort == "activity" else "ts DESC, id DESC"
+    from . import event_links
+
+    out = []
     with db.session() as conn:
         rows = conn.execute(
             f"SELECT uid, ts, source, project, title, content, meta FROM events{clause} "
             f"ORDER BY {order} LIMIT ? OFFSET ?",
             args + [limit, offset],
         ).fetchall()
-
-    out = []
-    for r in rows:
-        if not workspace.event_row_visible(r["source"], r["project"]):
-            continue
-        if workspace.event_timeline_hidden(r["source"], r["title"], r["meta"]):
-            continue
-        ts_estimated = False
-        has_reply = False
-        if r["meta"]:
-            try:
-                meta_obj = json.loads(r["meta"])
-                ts_estimated = bool(meta_obj.get("ts_estimated"))
-                has_reply = bool(meta_obj.get("has_reply"))
-            except json.JSONDecodeError:
+        for r in rows:
+            if not workspace.event_row_visible(r["source"], r["project"]):
+                continue
+            if workspace.event_timeline_hidden(r["source"], r["title"], r["meta"]):
+                continue
+            ts_estimated = False
+            has_reply = False
+            if r["meta"]:
+                try:
+                    meta_obj = json.loads(r["meta"])
+                    ts_estimated = bool(meta_obj.get("ts_estimated"))
+                    has_reply = bool(meta_obj.get("has_reply"))
+                except json.JSONDecodeError:
+                    meta_obj = {}
+            else:
                 meta_obj = {}
-        else:
-            meta_obj = {}
-        tlabel = timeutil.format_local(r["ts"])
-        if ts_estimated:
-            tlabel = f"约 {tlabel}"
-        item = {
-            "uid": r["uid"],
-            "ts": r["ts"],
-            "time": tlabel,
-            "ts_estimated": ts_estimated,
-            "source": r["source"],
-            "project": workspace.sanitize_display_project(r["project"]),
-            "title": r["title"],
-            "content": r["content"],
-            "has_reply": has_reply,
-        }
-        link = links.event_link(
-            r["source"],
-            r["title"],
-            r["content"],
-            r["project"],
-            uid=r["uid"],
-            meta=r["meta"],
-        )
-        if link:
-            item["link"] = link
-        out.append(item)
+            tlabel = timeutil.format_local(r["ts"])
+            if ts_estimated:
+                tlabel = f"约 {tlabel}"
+            item = {
+                "uid": r["uid"],
+                "ts": r["ts"],
+                "time": tlabel,
+                "ts_estimated": ts_estimated,
+                "source": r["source"],
+                "project": workspace.sanitize_display_project(r["project"]),
+                "title": r["title"],
+                "content": r["content"],
+                "has_reply": has_reply,
+            }
+            link = links.event_link(
+                r["source"],
+                r["title"],
+                r["content"],
+                r["project"],
+                uid=r["uid"],
+                meta=r["meta"],
+            )
+            if link:
+                item["link"] = link
+            rel = event_links.related_for_event(
+                conn,
+                uid=r["uid"],
+                source=r["source"],
+                title=r["title"] or "",
+                content=r["content"] or "",
+                meta=r["meta"],
+                ts=int(r["ts"]),
+            )
+            if rel:
+                item["related"] = rel
+            out.append(item)
 
     return {
         "items": out,
@@ -828,9 +901,26 @@ def api_index(body: IndexBody | None = None):
     db.init_db()
     req = body or IndexBody()
     try:
-        return {"stats": indexer.index(reindex=req.reindex)}
+        return {
+            "stats": indexer.index(
+                reindex=req.reindex,
+                incremental=req.incremental,
+                since_days=req.since_days,
+                since_hours=req.since_hours,
+            ),
+        }
     except OllamaError as e:
         return JSONResponse({"error": str(e)}, status_code=502)
+
+
+@app.get("/api/resume")
+def api_resume():
+    """接着干：开工总览卡片。"""
+    from . import resume_panel
+
+    db.init_db()
+    with db.session() as conn:
+        return resume_panel.generate(conn)
 
 
 @app.get("/api/summaries")
@@ -1747,6 +1837,46 @@ def api_ops_backup():
         content=result["path"],
     )
     return {"ok": True, **result}
+
+
+@app.post("/api/ops/backup/restore")
+def api_ops_backup_restore(body: dict):
+    path = (body or {}).get("path", "")
+    if not path:
+        return JSONResponse({"error": "缺少 path"}, status_code=400)
+    try:
+        result = ops_panel.restore_backup(path)
+    except OSError as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+    if not result.get("ok"):
+        return JSONResponse(result, status_code=400)
+    ops_timeline.log_safe(
+        action="ops.backup_restore",
+        title="[知识库] 恢复数据库备份",
+        content=result.get("restored_from", ""),
+    )
+    return result
+
+
+@app.post("/api/ops/index-health")
+def api_ops_index_health(body: dict | None = None):
+    cleanup = bool((body or {}).get("cleanup"))
+    return ops_panel.index_health(cleanup=cleanup)
+
+
+@app.get("/api/changelog/{project}")
+def api_changelog(project: str, days: int = 7):
+    from . import changelog
+
+    return changelog.generate(project, days=max(1, min(days, 90)))
+
+
+@app.get("/api/alerts")
+def api_alerts():
+    from . import proactive
+
+    items = proactive.collect_all()
+    return {"alerts": items}
 
 
 @app.post("/api/ops/git-sync-roots")

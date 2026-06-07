@@ -277,5 +277,10 @@ def collect(
                 conn.execute("DELETE FROM events WHERE uid=?", (row["uid"],))
 
         db.set_state(conn, state_key, sig)
+        from .. import session_summary
+
+        session_summary.maybe_summarize_session(
+            conn, uuid, project=project, turns=turns,
+        )
 
     return new

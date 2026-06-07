@@ -16,27 +16,6 @@ META_FILES: list[tuple[Path, str]] = [
 ]
 
 
-def _chunk(text: str, size: int, overlap: int) -> list[str]:
-    text = text.strip()
-    if not text:
-        return []
-    if len(text) <= size:
-        return [text]
-    chunks: list[str] = []
-    start = 0
-    n = len(text)
-    while start < n:
-        end = min(start + size, n)
-        nl = text.rfind("\n", start + size // 2, end)
-        if nl != -1 and end < n:
-            end = nl
-        chunks.append(text[start:end].strip())
-        if end >= n:
-            break
-        start = max(end - overlap, start + 1)
-    return [c for c in chunks if c]
-
-
 def _meta_text(path: Path, raw: str) -> str:
     if path.resolve() != config.CONFIG_PATH.resolve():
         return raw
@@ -76,7 +55,9 @@ def _index_document(
     if row and row["hash"] == h and not reindex:
         stats["skipped"] += 1
         return
-    chunks = _chunk(raw, int(cfg["chunk_chars"]), int(cfg["chunk_overlap"]))
+    from . import chunking
+
+    chunks = chunking.chunk_document(p, raw, cfg)
     if not chunks:
         return
     if row:
@@ -111,6 +92,10 @@ def _index_document(
                          (cur.lastrowid, blob))
         db.fts_index_chunk(conn, int(cur.lastrowid), path_s, project, ch)
         stats["chunks"] += 1
+    from . import symbol_index
+
+    if p.suffix.lower() in symbol_index._SYMBOL_EXTS:
+        symbol_index.sync_path(conn, p, project, raw)
     stats["files"] += 1
     if progress:
         progress(path_s, len(chunks))
@@ -167,12 +152,15 @@ def purge_excluded_documents(patterns: list[str] | None = None) -> dict[str, int
             db.fts_delete_doc(conn, doc_id)
             conn.execute("DELETE FROM chunks WHERE doc_id=?", (doc_id,))
             conn.execute("DELETE FROM documents WHERE id=?", (doc_id,))
+            from . import symbol_index
+
+            symbol_index.remove_path(conn, str(p.resolve()))
             removed += 1
         conn.commit()
     return {"documents_removed": removed}
 
 
-def _iter_files(roots, exclude, exts, max_bytes, path_patterns):
+def _iter_files(roots, exclude, exts, max_bytes, path_patterns, *, min_mtime: float | None = None):
     for root in roots:
         if not root.exists():
             continue
@@ -187,11 +175,30 @@ def _iter_files(roots, exclude, exts, max_bytes, path_patterns):
                 if p.suffix.lower() not in exts:
                     continue
                 try:
-                    if p.stat().st_size > max_bytes:
+                    st = p.stat()
+                    if st.st_size > max_bytes:
+                        continue
+                    if min_mtime is not None and st.st_mtime < min_mtime:
                         continue
                 except OSError:
                     continue
                 yield root, p
+
+
+def _since_ts_from_cfg(cfg: dict, since_days: float | None, since_hours: float | None) -> int | None:
+    if since_hours is not None and since_hours > 0:
+        return db.now() - int(since_hours * 3600)
+    if since_days is not None and since_days > 0:
+        return db.now() - int(since_days * 86400)
+    if cfg.get("index_incremental_after_ingest", True):
+        with db.session() as conn:
+            raw = db.get_state(conn, "ingest_last_ts") or db.get_state(conn, "index_last_ts")
+        if raw:
+            try:
+                return int(raw)
+            except ValueError:
+                pass
+    return None
 
 
 def index_meta(reindex: bool = False, progress=None) -> dict[str, int]:
@@ -210,7 +217,14 @@ def index_meta(reindex: bool = False, progress=None) -> dict[str, int]:
     return stats
 
 
-def index(reindex: bool = False, progress=None) -> dict[str, int]:
+def index(
+    reindex: bool = False,
+    progress=None,
+    *,
+    since_days: float | None = None,
+    since_hours: float | None = None,
+    incremental: bool = False,
+) -> dict[str, int]:
     cfg = config.load_config()
     purge = purge_excluded_documents(list(cfg.get("index_exclude_path_patterns") or []))
     roots = config.expand_paths(cfg["index_roots"])
@@ -220,9 +234,18 @@ def index(reindex: bool = False, progress=None) -> dict[str, int]:
     max_bytes = int(cfg["max_file_bytes"])
     ol = Ollama()
 
-    stats = {"files": 0, "chunks": 0, "skipped": 0, **purge}
+    min_mtime: float | None = None
+    since_ts: int | None = None
+    if not reindex and (incremental or since_days or since_hours):
+        since_ts = _since_ts_from_cfg(cfg, since_days, since_hours)
+        if since_ts:
+            min_mtime = float(since_ts)
+
+    stats = {"files": 0, "chunks": 0, "skipped": 0, "incremental": int(min_mtime is not None), **purge}
     with db.session() as conn:
-        for root, p in _iter_files(roots, exclude, exts, max_bytes, path_patterns):
+        for root, p in _iter_files(
+            roots, exclude, exts, max_bytes, path_patterns, min_mtime=min_mtime,
+        ):
             try:
                 raw = p.read_text(encoding="utf-8", errors="replace")
             except OSError:
@@ -231,6 +254,7 @@ def index(reindex: bool = False, progress=None) -> dict[str, int]:
 
             project = workspace.project_from_path(p, root)
             _index_document(conn, p, project, raw, cfg, ol, reindex, stats, progress)
+        db.set_state(conn, "index_last_ts", str(db.now()))
     meta = index_meta(reindex=reindex, progress=progress)
     for key, val in meta.items():
         if key in stats:

@@ -111,6 +111,14 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "standards_auto_global": True,
     "standards_auto_projects": True,
     "standards_auto_max_projects": 2,
+    "backup_keep_count": 10,
+    "parent_expand_chars": 400,
+    "code_aware_chunking": True,
+    "rerank_enabled": True,
+    "session_auto_summary": True,
+    "alert_dormant_days": 30,
+    "alert_rag_eval_drop_pct": 10,
+    "index_incremental_after_ingest": True,
 }
 
 

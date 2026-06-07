@@ -1,7 +1,6 @@
 """Web 运维面板：自检、备份、定时任务、导入发现、Git 扫描目录对齐。"""
 from __future__ import annotations
 
-import shutil
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -63,18 +62,19 @@ def schedule_detail() -> dict[str, Any]:
 
 
 def list_backups(limit: int = 8) -> list[dict[str, Any]]:
-    d = config.QR_HOME / "backups"
-    if not d.exists():
-        return []
+    from . import backup_ops
+
     rows: list[dict[str, Any]] = []
-    for p in sorted(d.glob("qr-*.db"), key=lambda x: x.stat().st_mtime, reverse=True):
+    for p in backup_ops.list_backup_files():
         st = p.stat()
+        verify = backup_ops.verify_backup(p)
         rows.append(
             {
                 "path": str(p),
                 "name": p.name,
                 "size_mb": round(st.st_size / (1024 * 1024), 2),
                 "mtime": datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M"),
+                "ok": verify.get("ok", False),
             }
         )
         if len(rows) >= limit:
@@ -83,16 +83,25 @@ def list_backups(limit: int = 8) -> list[dict[str, Any]]:
 
 
 def run_backup(dest: str = "") -> dict[str, str]:
-    config.ensure_dirs()
-    if dest:
-        out = Path(dest).expanduser()
-    else:
-        d = config.QR_HOME / "backups"
-        d.mkdir(parents=True, exist_ok=True)
-        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        out = d / f"qr-{stamp}.db"
-    shutil.copy2(config.DB_PATH, out)
-    return {"path": str(out), "name": out.name}
+    from . import backup_ops
+
+    return backup_ops.run_backup(dest)
+
+
+def restore_backup(path: str) -> dict[str, Any]:
+    from . import backup_ops
+
+    return backup_ops.restore_backup(path)
+
+
+def index_health(*, cleanup: bool = False) -> dict[str, Any]:
+    from . import index_health as ih
+
+    with db.session() as conn:
+        rep = ih.scan(conn)
+        if cleanup:
+            rep["cleanup"] = ih.cleanup_orphans(conn, dry_run=False)
+    return rep
 
 
 def sync_git_scan_roots() -> dict[str, Any]:

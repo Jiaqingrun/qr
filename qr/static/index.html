@@ -715,6 +715,19 @@
   }
   .chat-msg-head{display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:600}
   .chat-msg-head .time{margin-left:auto;font-weight:400;text-transform:none;letter-spacing:0}
+  .resume-card{padding:14px 18px;margin-bottom:12px}
+  .resume-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+  .resume-title{font-weight:700;font-size:14px;color:var(--lime)}
+  .resume-meta{font-size:12px;color:var(--muted);flex:1}
+  .resume-actions{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+  .resume-actions .badge{cursor:default}
+  .resume-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+  .resume-col-title{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;font-weight:600}
+  .resume-list{font-size:12px;line-height:1.65;color:var(--text)}
+  .resume-item{padding:4px 0;border-bottom:1px solid rgba(255,255,255,.04)}
+  .resume-item:last-child{border-bottom:none}
+  .resume-item .time{color:var(--muted);font-size:11px;margin-right:6px}
+  .resume-empty{color:var(--muted);font-size:12px;padding:4px 0}
   .ask-ops{padding:16px 18px;margin-bottom:14px}
   .ask-ops .toolbar-stack{margin-bottom:0;gap:14px}
   .ask-ops .toolbar-row{align-items:flex-start}
@@ -951,6 +964,7 @@
   .timeline{margin-top:8px}
   .tl-item{display:grid;grid-template-columns:110px 72px 1fr;gap:12px;padding:12px 0;border-bottom:1px solid var(--border);align-items:start}
   .tl-item:last-child{border:none}
+  .tl-related{margin-top:6px;font-size:12px;color:var(--muted);line-height:1.5}
   .tl-item.tl-item--new{animation:tlItemIn .38s var(--ease)}
   @keyframes tlItemIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
   #tlOut.tl-loading{opacity:.94;transition:opacity .18s var(--ease)}
@@ -1292,6 +1306,28 @@
     <div class="content">
       <!-- ASK -->
       <section class="view view--fill active" id="view-ask">
+        <div class="section-card resume-card" id="resumeCard" hidden>
+          <div class="resume-head">
+            <span class="resume-title">接着干</span>
+            <span class="resume-meta" id="resumeMeta">加载中…</span>
+            <button type="button" class="btn btn-ghost btn-sm" id="resumeRefreshBtn">刷新</button>
+          </div>
+          <div class="resume-actions" id="resumeActions"></div>
+          <div class="resume-grid">
+            <div class="resume-col">
+              <div class="resume-col-title">Cursor 话题</div>
+              <div class="resume-list" id="resumeCursor"></div>
+            </div>
+            <div class="resume-col">
+              <div class="resume-col-title">近期 Git</div>
+              <div class="resume-list" id="resumeGit"></div>
+            </div>
+            <div class="resume-col">
+              <div class="resume-col-title">待办 / README</div>
+              <div class="resume-list" id="resumeTasks"></div>
+            </div>
+          </div>
+        </div>
         <div class="section-card ask-ops split-ops">
           <div class="toolbar-stack">
             <div class="toolbar-row">
@@ -1626,6 +1662,7 @@
             <span class="tl-range-label">止</span>
             <input type="date" id="tlDateTo" title="结束日期">
           </div>
+          <input type="search" id="tlSearch" class="field-select" placeholder="搜索时间线…" style="max-width:200px" title="全文检索标题与内容">
           <select id="tlSource" class="field-select">
             <option value="">全部来源</option>
             <option value="shell">shell</option>
@@ -1788,6 +1825,7 @@
             <div class="btn-group">
               <button class="btn btn-primary btn-sm" id="opsRefreshBtn">刷新状态</button>
               <button class="btn btn-sm" id="opsBackupBtn">备份数据库</button>
+              <button class="btn btn-ghost btn-sm" id="opsIndexHealthBtn">索引健康</button>
               <button class="btn btn-sm" id="opsOptimizeBtn">一键优化</button>
               <button class="btn btn-sm" id="opsScheduleBtn">安装定时任务</button>
             </div>
@@ -2125,7 +2163,11 @@ function switchView(v){
   if(v==='insight')loadInsightPlaceholder();
   if(v==='ops')loadOps();
   if(v==='usage')loadUsage();
-  if(v==='ask'){if(!askState.dateFrom&&!askState.dateTo&&!askState.q)askState.page=1;loadChats()}
+  if(v==='ask'){
+    if(!askState.dateFrom&&!askState.dateTo&&!askState.q)askState.page=1;
+    loadChats();
+    loadResumePanel();
+  }
   if(v==='project'){
     loadProjects();
     if(!$('#projectSelect').value&&$('#askProject').value)$('#projectSelect').value=$('#askProject').value;
@@ -2948,6 +2990,61 @@ if(!window._qrPillarResize){
   window.addEventListener('resize',()=>{ requestAnimationFrame(setupPillarMarquees); });
 }
 
+const resumeState={loading:false,data:null};
+
+function renderResumePanel(d){
+  const card=$('#resumeCard');
+  if(!card) return;
+  if(!d){
+    card.hidden=true;
+    return;
+  }
+  card.hidden=false;
+  const proj=d.active_project||'未识别项目';
+  $('#resumeMeta').textContent=`${proj} · ${d.generated_at||''}`;
+  const acts=d.actions||[];
+  $('#resumeActions').innerHTML=acts.length
+    ?acts.map(a=>`<span class="badge badge-focus">${esc(a)}</span>`).join('')
+    :'<span class="resume-empty">暂无建议</span>';
+  const cur=d.cursor_topics||[];
+  $('#resumeCursor').innerHTML=cur.length
+    ?cur.map(it=>`<div class="resume-item"><span class="time">${esc(it.time||'')}</span>${esc(it.title||'')}</div>`).join('')
+    :'<div class="resume-empty">近 7 天无 Cursor 记录</div>';
+  const git=d.recent_git||[];
+  $('#resumeGit').innerHTML=git.length
+    ?git.map(it=>`<div class="resume-item"><span class="time">${esc(it.time||'')}</span>${esc(it.title||'')}</div>`).join('')
+    :'<div class="resume-empty">近 14 天无 Git 记录</div>';
+  const tasks=(d.open_tasks?.active)||[];
+  const byProj=d.open_tasks?.by_project||[];
+  let taskHtml='';
+  if(tasks.length){
+    taskHtml+=tasks.slice(0,5).map(t=>`<div class="resume-item">${esc(t)}</div>`).join('');
+  }
+  if(byProj.length){
+    taskHtml+=byProj.map(bp=>{
+      const lines=(bp.tasks||[]).map(t=>`<div class="resume-item">${esc(t)}</div>`).join('');
+      return `<div class="resume-item" style="border:none;padding-top:8px"><span class="time">${esc(bp.project||'')}</span></div>${lines}`;
+    }).join('');
+  }
+  $('#resumeTasks').innerHTML=taskHtml||'<div class="resume-empty">README 无未完成项</div>';
+}
+
+async function loadResumePanel(){
+  if(resumeState.loading) return;
+  resumeState.loading=true;
+  try{
+    const d=await api('/api/resume');
+    resumeState.data=d;
+    renderResumePanel(d);
+  }catch(e){
+    renderResumePanel(null);
+  }finally{
+    resumeState.loading=false;
+  }
+}
+
+$('#resumeRefreshBtn')?.addEventListener('click',()=>loadResumePanel());
+
 async function loadStats(){
   renderStatusPillars({pillars:[]});
   try{
@@ -3556,7 +3653,7 @@ $('#genRangeBtn').onclick=()=>runSumGenerate(true);
 // TIMELINE
 const TL_PAGE_SIZE=50;
 const TL_SORT_KEY='qr_tl_sort_v2';
-const tlState={page:1,dateFrom:'',dateTo:'',source:'',sort:'time',pages:1};
+const tlState={page:1,dateFrom:'',dateTo:'',source:'',query:'',sort:'time',pages:1};
 
 function tlInitSort(){
   const saved=sessionStorage.getItem(TL_SORT_KEY);
@@ -3585,8 +3682,12 @@ function evRow(e,opts={}){
     body=esc(t)+(e.project?`<span style="color:var(--muted)"> · ${esc(e.project)}</span>`:'');
   }
   const est=e.ts_estimated?' <span class="tl-est" title="该条时间为估算（对话无时间戳或历史无 epoch）">估</span>':'';
+  let rel='';
+  if(e.related&&e.related.length){
+    rel='<div class="tl-related">相关: '+e.related.slice(0,3).map(r=>`<span class="tag ${r.source}">${esc(r.source)}</span> ${esc((r.title||'').slice(0,40))}`).join(' · ')+'</div>';
+  }
   const newCls=opts.isNew?' tl-item--new':'';
-  return `<div class="tl-item${newCls}" data-uid="${esc(tlItemKey(e))}"><div class="tl-time">${e.time}${est}</div><div><span class="tag ${e.source}">${e.source}</span></div><div class="tl-body">${body}</div></div>`;
+  return `<div class="tl-item${newCls}" data-uid="${esc(tlItemKey(e))}"><div class="tl-time">${e.time}${est}</div><div><span class="tag ${e.source}">${e.source}</span></div><div class="tl-body">${body}${rel}</div></div>`;
 }
 
 function tlEmptyHtml(){
@@ -3641,7 +3742,7 @@ function tlFlashSyncHint(text,ms=2200){
   clearTimeout(hint._tlSyncTimer);
   hint._tlSyncTimer=setTimeout(()=>{ hint.textContent=hint.dataset.idle||idle; },ms);
 }
-function tlHasFilter(){return !!(tlState.dateFrom||tlState.dateTo||tlState.source)}
+function tlHasFilter(){return !!(tlState.dateFrom||tlState.dateTo||tlState.source||tlState.query)}
 function tlDateLabel(){
   const {dateFrom,dateTo}=tlState;
   if(dateFrom&&dateTo) return dateFrom===dateTo?dateFrom:`${dateFrom} ~ ${dateTo}`;
@@ -3654,11 +3755,13 @@ function tlQuery(){
   if(tlState.dateFrom) q.set('date_from',tlState.dateFrom);
   if(tlState.dateTo) q.set('date_to',tlState.dateTo);
   if(tlState.source) q.set('source',tlState.source);
+  if(tlState.query) q.set('q',tlState.query);
   return '/api/events?'+q;
 }
 function syncTimelineFilters(){
   tlState.dateFrom=$('#tlDateFrom').value;
   tlState.dateTo=$('#tlDateTo').value;
+  tlState.query=($('#tlSearch')?.value||'').trim();
   const sortEl=$('#tlSort');
   if(sortEl) tlState.sort=sortEl.value==='time'?'time':'activity';
   if(tlState.dateFrom&&tlState.dateTo&&tlState.dateFrom>tlState.dateTo){
@@ -3738,6 +3841,8 @@ function tlReloadLatest(opts={}){
   const page=tlHasFilter()?undefined:1;
   return loadTimeline(page,{silent,incremental:opts.incremental!==false});
 }
+$('#tlSearch')?.addEventListener('keydown',e=>{if(e.key==='Enter'){tlState.query=e.target.value.trim();tlState.page=1;loadTimeline()}});
+$('#tlSearch')?.addEventListener('change',()=>{tlState.query=($('#tlSearch').value||'').trim();tlState.page=1;loadTimeline()});
 $('#tlDateFrom').onchange=tlApplyFilters;
 $('#tlDateTo').onchange=tlApplyFilters;
 $('#tlSource').onchange=()=>{tlState.source=$('#tlSource').value;tlState.page=1;loadTimeline()};
@@ -3749,7 +3854,8 @@ $('#tlSort').onchange=()=>{
 };
 $('#tlClearBtn').onclick=()=>{
   $('#tlDateFrom').value='';$('#tlDateTo').value='';$('#tlSource').value='';
-  tlState.dateFrom='';tlState.dateTo='';tlState.source='';tlState.page=1;loadTimeline();
+  if($('#tlSearch')) $('#tlSearch').value='';
+  tlState.dateFrom='';tlState.dateTo='';tlState.source='';tlState.query='';tlState.page=1;loadTimeline();
 };
 $('#tlPrev').onclick=()=>{if(tlState.page>1)loadTimeline(tlState.page-1)};
 $('#tlNext').onclick=()=>{if(tlState.page<tlState.pages)loadTimeline(tlState.page+1)};
@@ -4891,7 +4997,7 @@ function renderOpsSchedule(d){
     return `${a.loaded?'✓':'·'} ${a.title} (${a.label})\n    ${st}`;
   }).join('\n');
   const cfg=d?.config||{};
-  const backups=(d?.backups||[]).map(b=>`${b.mtime} · ${b.name} · ${b.size_mb} MB`).join('\n')||'（尚无备份）';
+  const backups=(d?.backups||[]).map(b=>`${b.ok?'✓':'✗'} ${b.mtime} · ${b.name} · ${b.size_mb} MB`).join('\n')||'（尚无备份）';
   const lines=[
     `[定时任务] ${sched.loaded||0}/${sched.total||0} 已加载`,
     agents,
@@ -4947,6 +5053,18 @@ $('#opsBackupBtn')?.addEventListener('click',async()=>{
     loadStats();
   }catch(e){err=true;msg='备份失败：'+e.message}
   qrRunEnd('ops-backup',{message:msg,error:err});
+});
+$('#opsIndexHealthBtn')?.addEventListener('click',async()=>{
+  const cleanup=confirm('是否同时清理源文件已消失的孤儿索引？\n确定=清理，取消=仅检查');
+  if(qrRunHas('ops-index-health')) return;
+  qrRunStart({id:'ops-index-health',label:'索引健康',group:'ops',hintEl:'#opsHint'});
+  let msg='',err=false;
+  try{
+    const r=await api('/api/ops/index-health',{method:'POST',body:JSON.stringify({cleanup})});
+    msg=`文档 ${r.documents} · 失效 ${r.missing_files}`+(r.cleanup?` · 已清 ${r.cleanup.documents_removed}`:'');
+    await loadOps();
+  }catch(e){err=true;msg='检查失败：'+e.message}
+  qrRunEnd('ops-index-health',{message:msg,error:err});
 });
 $('#opsOptimizeBtn')?.addEventListener('click',async()=>{
   if(!confirm('一键优化含 reindex / 总结 / 规范修订 / 引导语合并，可能较久。继续？')) return;
@@ -5316,7 +5434,7 @@ function initBrandMotion(){
   window._qrBrandRotate=setInterval(rotateBrandTagline,4500);
 }
 tlInitSort();
-loadStats();loadProjects();loadAskModels();
+loadStats();loadProjects();loadAskModels();loadResumePanel();
 graphBindZoom($('#graphSvg'));
 graphBindZoom($('#relGraphSvg'));
 initBrandMotion();

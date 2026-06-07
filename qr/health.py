@@ -271,8 +271,8 @@ def diagnose(conn: sqlite3.Connection | None = None) -> dict:
 
         cfg_auto = config.load_config()
         if cfg_auto.get("standards_auto_revise", True):
-            with db.session() as conn:
-                last = db.get_state(conn, "standards_auto_last_run")
+            with db.session() as auto_conn:
+                last = db.get_state(auto_conn, "standards_auto_last_run")
             if last:
                 try:
                     ago_h = (db.now() - int(last)) / 3600
@@ -289,6 +289,29 @@ def diagnose(conn: sqlite3.Connection | None = None) -> dict:
                     "fix": "等待每周 com.qr.weekly，或 qr standards-auto --force",
                 })
 
+        from . import index_health
+
+        idx = index_health.scan(conn)
+        if idx.get("missing_files"):
+            issues.append({
+                "area": "index",
+                "level": "warn",
+                "message": (
+                    f"索引中有 {idx['missing_files']} 个文档源文件已不存在"
+                    f"（含 Cursor 转录 {idx.get('stale_cursor', 0)}）"
+                ),
+                "fix": "qr index-health --cleanup 或 Web 运维页清理孤儿索引",
+            })
+        elif idx.get("documents"):
+            ok_items.append(f"索引文档 {idx['documents']} 个，路径均有效")
+        for bi in idx.get("backup_issues", []):
+            issues.append({
+                "area": "backup",
+                "level": "info",
+                "message": bi,
+                "fix": "qr backup 创建备份；qr backup --verify 校验",
+            })
+
         return {
             "ok": not any(i["level"] == "error" for i in issues),
             "issues": issues,
@@ -298,6 +321,7 @@ def diagnose(conn: sqlite3.Connection | None = None) -> dict:
             "tracker": tr,
             "schedule": sched,
             "config_path": str(config.CONFIG_PATH),
+            "index_health": idx,
         }
     finally:
         if own_conn:
