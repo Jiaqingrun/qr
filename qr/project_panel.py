@@ -4,7 +4,7 @@ import json
 import time
 from pathlib import Path
 
-from . import compliance, config, db, facts, query, timeutil
+from . import compliance, config, db, facts, query, timeutil, workspace
 
 
 def _match_project_path(path: str, project: str) -> bool:
@@ -14,7 +14,7 @@ def _match_project_path(path: str, project: str) -> bool:
 
 
 def panel(project: str, days: int = 14) -> dict:
-    project = (project or "").strip()
+    project = workspace.normalize_project_id((project or "").strip())
     if not project:
         return {"error": "project 不能为空"}
     since = db.now() - days * 86400
@@ -64,8 +64,6 @@ def panel(project: str, days: int = 14) -> dict:
             comp = r
             break
     if comp is None:
-        from . import workspace
-
         root = workspace.resolve_project_dir(project)
         if root and root.is_dir():
             comp = compliance.check_project(root)

@@ -13,6 +13,11 @@ _TAG_RE = re.compile(r"<[^>]+>")
 
 
 def _clean_project(name: str) -> str:
+    from . import workspace
+
+    mapped = workspace.project_from_cursor_dir_name(name)
+    if mapped:
+        return mapped
     parts = name.split("-")
     return parts[-1] if parts else name
 

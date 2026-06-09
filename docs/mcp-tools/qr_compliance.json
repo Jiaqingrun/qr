@@ -1,0 +1,8 @@
+{
+  "name": "qr_compliance",
+  "description": "扫描 ~/QR 工作区项目合规（README / PROJECT.md / 规则）",
+  "arguments": {
+    "type": "object",
+    "properties": {}
+  }
+}

@@ -37,6 +37,11 @@ def _texts(message) -> list[str]:
 
 
 def _clean_project(name: str) -> str:
+    from .. import workspace
+
+    mapped = workspace.project_from_cursor_dir_name(name)
+    if mapped:
+        return mapped
     parts = name.split("-")
     return parts[-1] if parts else name
 
@@ -198,6 +203,8 @@ def collect(
     if not base.exists():
         return 0
 
+    from .. import prompt_guides as pg
+
     if backfill:
         _clear_cursor_state(conn)
 
@@ -210,6 +217,11 @@ def collect(
 
         sig = hashlib.sha256(data).hexdigest()
         state_key = f"cursor_sig:{uuid}"
+
+        if pg.is_session_dismissed(conn, uuid):
+            db.set_state(conn, state_key, sig)
+            continue
+
         turns = cursor_archive.parse_transcript_turns(jsonl)
         max_q_ts = max((int(t["ts"]) for t in turns), default=0)
         project = _clean_project(jsonl.parts[len(base.parts)])
@@ -250,6 +262,9 @@ def collect(
             i = int(t["query_index"])
             ts = int(t["ts"])
             if since_ts and ts < since_ts:
+                continue
+            event_uid = f"cursor:{uuid}:q{i}"
+            if pg._is_dismissed(conn, event_uid):
                 continue
             _upsert_query_event(
                 conn,

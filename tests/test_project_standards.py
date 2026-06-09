@@ -32,6 +32,16 @@ class TestProjectStandards(unittest.TestCase):
             agents = (d / "AGENTS.md").read_text(encoding="utf-8")
             self.assertIn("本项目约定", agents)
 
+    def test_project_from_cursor_dir_name(self):
+        self.assertEqual(
+            workspace.project_from_cursor_dir_name("Users-qr-QR-dev-qr"),
+            "dev/qr",
+        )
+        self.assertEqual(
+            workspace.project_from_cursor_dir_name("Users-qr-QR-dev-project-sports"),
+            "dev/project-sports",
+        )
+
     def test_listable_workspace_only(self):
         self.assertFalse(workspace.is_listable_project_id("documents/foo"))
         self.assertFalse(workspace.is_listable_project_id("legacy/documents/bar"))
@@ -58,6 +68,8 @@ class TestProjectStandards(unittest.TestCase):
         )
         self.assertIsNone(workspace.sanitize_display_project("Documents/EVE"))
         self.assertEqual(workspace.sanitize_display_project("dev/qr"), "dev/qr")
+        self.assertEqual(workspace.sanitize_display_project("qr"), "dev/qr")
+        self.assertEqual(workspace.project_timeline_label("dev/project-sports"), "project-sports")
 
     def test_event_row_visible(self):
         self.assertFalse(workspace.event_row_visible("file", "Documents/EVE"))

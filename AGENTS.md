@@ -46,10 +46,6 @@
 - 每周查看 `qr summary --period week` 的总结，对照本规范修正习惯。
 - 阶段性把散落项目迁入 `~/QR` 或归档：`qr workspace migrate` / `qr workspace prune`。
 
-
-## 测试新增
-- 修订条目
-
 ## 六、界面与视觉规范（全局）
 - **QR 知识库 Web**（`http://127.0.0.1:8765`）与各业务项目前台，在信息架构上保持一致：侧栏导航、卡片分区、时间线列表（首行标题 + 可点击路径）、标签色与来源色区分。
 - 深色主题为默认参考；主色使用 CSS 变量（如 `--lime` / `--muted` / `--rose`），避免硬编码散落颜色。
@@ -77,7 +73,6 @@
 - 索引默认仅 `~/QR`（见 `config.json` → `index_roots`）
 
 ## AI 协作（本项目）
-- 先读 `README.md`、`docs/USE_CASES.md`、`docs/WEB_UI_LAYOUT.md`
+- 先读 `README.md`、`docs/USE_CASES.md`
 - 最小 diff；不提交除非用户要求
 - 时间线 cursor 事件按 file 打开归档路径，不用弹窗
-- **知识库程序改动后**：自行判断并同步文档与规则；全量自检（compileall + unittest + doctor）；修复问题并清理无效代码（见 `PROJECT.md`）

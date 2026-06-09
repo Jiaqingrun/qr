@@ -1,0 +1,13 @@
+{
+  "name": "qr_timeline",
+  "description": "搜索或浏览 QR本地知识库 行为时间线",
+  "arguments": {
+    "type": "object",
+    "properties": {
+      "q": { "type": "string", "description": "全文检索关键词" },
+      "days": { "type": "integer", "default": 14 },
+      "source": { "type": "string" },
+      "limit": { "type": "integer", "default": 20 }
+    }
+  }
+}

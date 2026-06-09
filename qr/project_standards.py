@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from . import db, governance, standards_digest, workspace
+from . import config, db, governance, standards_digest, workspace
 
 PROJECT_MD = "PROJECT.md"
 PROJECT_RULE = "10-project.mdc"
@@ -176,7 +176,12 @@ def revise_from_conversations(
         f"# 最近一个 {period} 内与本项目相关的行为与对话\n\n{ctx}\n\n"
         "请输出修订后的**完整**项目 PROJECT.md。"
     )
-    raw = Ollama().generate(prompt, system=_PROJECT_REVISION_SYSTEM, strip_think=True)
+    raw = Ollama().generate(
+        prompt,
+        system=_PROJECT_REVISION_SYSTEM,
+        strip_think=True,
+        timeout=float(config.load_config().get("standards_revise_timeout_seconds", 1800)),
+    )
     new = _sanitize_project_output(raw)
     if not _is_valid_project_standards(new):
         raise ValueError("项目规范自动修订未通过校验，未写入文件")

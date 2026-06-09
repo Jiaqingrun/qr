@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sys
 
-from qr import compliance, db, facts, project_panel, prompt_guides, query, retrieval_meta, timeline_search
+from qr import compliance, db, facts, project_panel, prompt_guides, query, retrieval_meta, timeline_search, workspace
 
 
 def _send(obj: dict) -> None:
@@ -150,8 +150,9 @@ def _call_tool(name: str, arguments: dict) -> dict:
         refs = "\n".join(_fmt_hit(h, i) for i, h in enumerate(hits[:3]))
         return {"content": [{"type": "text", "text": f"{answer}\n\n---\n{refs}"}]}
     if name == "qr_project":
+        pid = workspace.normalize_project_id(arguments["project"])
         data = project_panel.panel(
-            arguments["project"],
+            pid,
             int(arguments.get("days", 14)),
         )
         return {"content": [{"type": "text", "text": json.dumps(data, ensure_ascii=False, indent=2)}]}

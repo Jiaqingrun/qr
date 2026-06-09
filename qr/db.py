@@ -127,6 +127,30 @@ def vec_available() -> bool:
     return bool(_VEC_OK)
 
 
+def ensure_vec_table(conn: sqlite3.Connection) -> bool:
+    """按 config embed_dim 创建/迁移 vec_chunks；维度变化时重建空表。"""
+    if not vec_available():
+        return False
+    dim = int(config.load_config().get("embed_dim", 768))
+    stored = get_state(conn, "vec_dim")
+    table_ok = False
+    try:
+        conn.execute("SELECT 1 FROM vec_chunks LIMIT 1")
+        table_ok = True
+    except sqlite3.OperationalError:
+        pass
+    if table_ok and stored and int(stored) == dim:
+        return False
+    conn.execute("DROP TABLE IF EXISTS vec_chunks")
+    conn.execute(
+        "CREATE VIRTUAL TABLE vec_chunks USING "
+        f"vec0(embedding float[{dim}] distance_metric=cosine)"
+    )
+    set_state(conn, "vec_dim", str(dim))
+    conn.commit()
+    return True
+
+
 def connect() -> sqlite3.Connection:
     config.ensure_dirs()
     conn = sqlite3.connect(str(config.DB_PATH))
@@ -232,11 +256,7 @@ def init_db() -> None:
         conn.commit()
         init_fts(conn)
         if vec_available():
-            dim = int(config.load_config().get("embed_dim", 768))
-            conn.execute(
-                "CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING "
-                f"vec0(embedding float[{dim}] distance_metric=cosine)"
-            )
+            ensure_vec_table(conn)
         try:
             chunks_n = conn.execute("SELECT COUNT(*) c FROM chunks").fetchone()["c"]
             fts_n = conn.execute("SELECT COUNT(*) c FROM chunks_fts").fetchone()["c"]
@@ -258,6 +278,18 @@ def sync_vec(conn: sqlite3.Connection) -> int:
         conn.execute("INSERT INTO vec_chunks(rowid, embedding) VALUES (?, ?)",
                      (r["id"], r["embedding"]))
     return len(rows)
+
+
+def checkpoint_wal(*, truncate: bool = False) -> dict[str, int]:
+    """合并 WAL 日志，减轻长期运行时的锁竞争与体积。"""
+    with connect() as conn:
+        mode = "TRUNCATE" if truncate else "PASSIVE"
+        row = conn.execute(f"PRAGMA wal_checkpoint({mode})").fetchone()
+        return {
+            "busy": int(row[0]),
+            "log_pages": int(row[1]),
+            "checkpointed": int(row[2]),
+        }
 
 
 @contextmanager
@@ -310,6 +342,9 @@ def _fts_sync_event(
 def insert_event(conn: sqlite3.Connection, *, uid: str, ts: int, source: str,
                  title: str = "", content: str = "", project: str | None = None,
                  meta: str | None = None) -> bool:
+    from . import workspace
+
+    project = workspace.canonical_project_id(project) if project else project
     cur = conn.execute(
         "INSERT OR IGNORE INTO events(uid,ts,source,project,title,content,meta) "
         "VALUES(?,?,?,?,?,?,?)",
@@ -325,6 +360,9 @@ def insert_event(conn: sqlite3.Connection, *, uid: str, ts: int, source: str,
 def upsert_event(conn: sqlite3.Connection, *, uid: str, ts: int, source: str,
                  title: str = "", content: str = "", project: str | None = None,
                  meta: str | None = None) -> None:
+    from . import workspace
+
+    project = workspace.canonical_project_id(project) if project else project
     conn.execute(
         "INSERT INTO events(uid,ts,source,project,title,content,meta) "
         "VALUES(?,?,?,?,?,?,?) "

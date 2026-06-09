@@ -21,10 +21,38 @@ class Ollama:
         self.url = (url or cfg["ollama_url"]).rstrip("/")
         self.embed_model = embed_model or cfg["embed_model"]
         self.chat_model = chat_model or cfg["chat_model"]
+        self.embed_dim = int(cfg.get("embed_dim") or 0)
         # trust_env=False：忽略系统/环境代理，本机直连 ollama（避免被 Clash 等代理拦截返回 502）
         self._client = httpx.Client(trust_env=False, timeout=600.0)
 
     def embed(self, text: str) -> list[float]:
+        emb = self._embed_via_api(text)
+        if not emb:
+            raise OllamaError("embedding 返回为空，确认 ollama 正在运行且已拉取嵌入模型")
+        if self.embed_dim and len(emb) != self.embed_dim:
+            raise OllamaError(
+                f"embedding 维度 {len(emb)} 与 config embed_dim {self.embed_dim} 不一致"
+            )
+        return emb
+
+    def _embed_via_api(self, text: str) -> list[float] | None:
+        payload: dict = {"model": self.embed_model, "input": text}
+        if self.embed_dim:
+            payload["dimensions"] = self.embed_dim
+        try:
+            r = self._client.post(
+                f"{self.url}/api/embed", json=payload, timeout=120.0,
+            )
+            r.raise_for_status()
+            data = r.json()
+            embs = data.get("embeddings")
+            if embs:
+                return embs[0]
+            emb = data.get("embedding")
+            if emb:
+                return emb
+        except httpx.HTTPError:
+            pass
         try:
             r = self._client.post(
                 f"{self.url}/api/embeddings",
@@ -32,16 +60,13 @@ class Ollama:
                 timeout=120.0,
             )
             r.raise_for_status()
-            emb = r.json().get("embedding")
+            return r.json().get("embedding")
         except httpx.HTTPError as e:
             raise OllamaError(f"embedding 调用失败: {e}") from e
-        if not emb:
-            raise OllamaError("embedding 返回为空，确认 ollama 正在运行且已拉取嵌入模型")
-        return emb
 
     def generate(self, prompt: str, system: str | None = None,
                  model: str | None = None, strip_think: bool = True,
-                 num_ctx: int | None = None) -> str:
+                 num_ctx: int | None = None, timeout: float | None = None) -> str:
         cfg = config.load_config()
         resolved = model or self.chat_model
         if num_ctx is None:
@@ -58,11 +83,20 @@ class Ollama:
         }
         if system:
             payload["system"] = system
+        req_timeout = 600.0 if timeout is None else float(timeout)
         try:
-            r = self._client.post(f"{self.url}/api/generate", json=payload, timeout=600.0)
+            r = self._client.post(
+                f"{self.url}/api/generate", json=payload, timeout=req_timeout,
+            )
             r.raise_for_status()
             text = r.json().get("response", "")
         except httpx.HTTPError as e:
+            if isinstance(e, httpx.TimeoutException):
+                raise OllamaError(
+                    f"生成超时（已等待 {int(req_timeout)} 秒）。"
+                    "规范修订 prompt 较长，请稍候重试；"
+                    "或在 ~/.qr/config.json 提高 standards_revise_timeout_seconds。"
+                ) from e
             raise OllamaError(f"生成调用失败: {e}") from e
         if strip_think:
             text = _THINK_RE.sub("", text).strip()

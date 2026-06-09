@@ -39,6 +39,7 @@ qr query "database locked" -k 8                   # 只检索、不生成
 - 日常增量：`qr ingest` / `qr update` 采集后会自动增量索引；也可 `qr index --incremental`  
 - 符号定位：`qr symbol <名称>` 或 `qr query <符号名>`（精确标识符会优先命中定义行）  
 - 稳定配置事实：`qr facts sync`（端口、embed 模型等）  
+- 检索子系统升级计划（给未来改版用）：`docs/RETRIEVAL_UPGRADE_PLAN.md`
 
 ---
 
@@ -121,7 +122,7 @@ Web → **项目** 页选项目查看。
 **推荐操作**  
 ```bash
 qr workspace status
-qr import                      # 发现散落项目
+qr workspace import            # 发现散落项目（qr import 已弃用）
 qr workspace migrate --dry-run
 qr workspace new my-app -c dev
 qr workspace audit && qr workspace prune --yes
@@ -226,7 +227,22 @@ qr prompts types
 
 ---
 
-## 12. 项目简报与主动提醒
+## 12. 项目域：体检 / 简介 / 变更简报
+
+**三个概念（勿混用）**
+
+| 名称 | CLI / API | 用途 |
+|------|-----------|------|
+| **体检面板** | `qr project dev/qr`、`/api/project` | Git、Cursor、合规、事实、样例检索 |
+| **项目简介** | `/api/project/brief` | README/PROJECT.md 用途、功能点、完成度 |
+| **变更简报** | `qr changelog dev/qr`、`/api/changelog/{id}` | 近 N 天 Git/Cursor/文件活动 Markdown |
+
+Web **项目**页可点「变更简报」；**洞察**页有「今日总览」（接着干 + 洞察摘要 + 提醒）。  
+规范**沿革**请用 `/api/standards/history`（旧路径 `/api/standards/changelog` 仍可用）。
+
+---
+
+## 13. 项目简报与主动提醒
 
 **能做什么**  
 - 单项目 **变更简报**（Git 提交、Cursor 话题、文件改动、合规、稳定事实）  

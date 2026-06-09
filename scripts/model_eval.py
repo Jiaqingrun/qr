@@ -118,7 +118,8 @@ def main():
             "deepseek": run_model("deepseek-r1:32b", cfg["deep_model"], rag_map),
         },
     }
-    path = Path.home() / ".qr" / "logs" / "model_eval.json"
+    path = config.LOGS_DIR / "model_eval.json"
+    config.ensure_dirs()
     path.write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
     print("WROTE", path)
 

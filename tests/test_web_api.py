@@ -58,6 +58,30 @@ class TestWebApi(unittest.TestCase):
         self.assertTrue(data.get("web_restart_pending"))
         self.assertIn("message", data)
 
+    def test_api_ops_schedule_uninstall(self):
+        with mock.patch(
+            "qr.ops_panel.uninstall_schedule_agent",
+            return_value={
+                "ok": True,
+                "label": "com.qr.eval",
+                "title": "每月模型评测",
+                "schedule": {"loaded": 7, "total": 8},
+            },
+        ):
+            r = self.client.post(
+                "/api/ops/schedule/uninstall",
+                json={"label": "com.qr.eval"},
+            )
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["label"], "com.qr.eval")
+
+    def test_api_ops_schedule_uninstall_unknown(self):
+        r = self.client.post(
+            "/api/ops/schedule/uninstall",
+            json={"label": "com.qr.unknown"},
+        )
+        self.assertEqual(r.status_code, 400)
+
     def test_sync_git_scan_roots(self):
         with tempfile.TemporaryDirectory() as td:
             cfg_path = Path(td) / "config.json"

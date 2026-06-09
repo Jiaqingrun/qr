@@ -23,34 +23,22 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "ollama_url": "http://localhost:11434",
-    "embed_model": "bge-m3",
+    "embed_model": "qwen3-embedding:8b",
     "chat_model": "qwen2.5:72b",
-    "deep_model": "deepseek-r1:70b",
+    "deep_model": "deepseek-r1:32b",
     "default_ask_model": "qwen2.5:72b",
     "ask_models": [
         {
-            "id": "qwen2.5:32b",
-            "label": "Qwen 2.5 · 32B",
-            "hint": "速度快，适合日常查阅",
-            "reasoning": False,
-        },
-        {
             "id": "qwen2.5:72b",
             "label": "Qwen 2.5 · 72B",
-            "hint": "默认推荐，综合质量好",
+            "hint": "默认推荐，日常查阅与总结",
             "reasoning": False,
             "default": True,
         },
         {
             "id": "deepseek-r1:32b",
             "label": "DeepSeek R1 · 32B",
-            "hint": "推理链，比 70B 快",
-            "reasoning": True,
-        },
-        {
-            "id": "deepseek-r1:70b",
-            "label": "DeepSeek R1 · 70B",
-            "hint": "强推理，最慢",
+            "hint": "深度推理，复杂架构与因果分析",
             "reasoning": True,
         },
     ],
@@ -67,7 +55,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "cursor_poll_seconds": 60,
     "web_watch_seconds": 45,
     "backfill_days": 365,
-    "embed_dim": 1024,
+    "embed_dim": 4096,
     "scatter_roots": [
         "~", "~/Desktop", "~/Documents",
         "~/AndroidStudioProjects", "~/PyCharmMiscProject",
@@ -99,6 +87,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "web_port": 8765,
     "context_tokens": 32768,
     "deep_context_tokens": 131072,
+    "standards_revise_timeout_seconds": 1800,
     "prompt_guides_dir": "~/.qr/prompts",
     "prompt_guides_auto_sync": True,
     "prompt_guides_export_md": True,
@@ -115,9 +104,14 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "parent_expand_chars": 400,
     "code_aware_chunking": True,
     "rerank_enabled": True,
+    "retrieval_vec_oversample": 8,
+    "retrieval_max_per_path": 2,
+    "cursor_precise_time": True,
     "session_auto_summary": True,
     "alert_dormant_days": 30,
     "alert_rag_eval_drop_pct": 10,
+    "eval_monthly_day": 1,
+    "eval_monthly_hour": 3,
     "index_incremental_after_ingest": True,
 }
 

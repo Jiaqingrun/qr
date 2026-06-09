@@ -15,6 +15,14 @@ _PROTECTED_PROJECTS = frozenset({"dev/qr"})
 _DELETE_CONFIRM_PHRASE = "永久删除"
 # 工作区目录存在但不应出现在项目列表（导出镜像等）
 _LIST_EXCLUDE_IDS = frozenset({"dev/qr-export"})
+TARGET_QR = "dev/qr"
+TARGET_SPORTS = "dev/project-sports"
+# 历史单段 project → 规范 category/name
+LEGACY_PROJECT_ALIASES: dict[str, str] = {
+    "qr": TARGET_QR,
+    "sports": TARGET_SPORTS,
+    "cursor-qr": TARGET_QR,
+}
 
 
 def workspace_root(cfg: dict[str, Any] | None = None) -> Path:
@@ -180,9 +188,46 @@ def is_listable_project_id(project_id: str, cfg: dict[str, Any] | None = None) -
     return is_under_workspace(pdir, cfg)
 
 
+def canonical_project_id(project: str | None, cfg: dict[str, Any] | None = None) -> str | None:
+    """规范 project：legacy 别名 → category/name；已是规范 ID 则原样返回。"""
+    pid = (project or "").strip().strip("/")
+    if not pid:
+        return None
+    alias = LEGACY_PROJECT_ALIASES.get(pid)
+    if alias:
+        return alias
+    if is_listable_project_id(pid, cfg):
+        return pid
+    resolved = normalize_project_id(pid, cfg)
+    if resolved and is_listable_project_id(resolved, cfg):
+        return resolved
+    return pid
+
+
+def project_timeline_label(project_id: str | None, cfg: dict[str, Any] | None = None) -> str | None:
+    """时间线标签：dev/qr → qr，dev/project-sports → project-sports。"""
+    canon = canonical_project_id(project_id, cfg)
+    if not canon or not is_listable_project_id(canon, cfg):
+        return None
+    _, name = parse_project_id(canon)
+    return name or canon
+
+
+def project_filter_values(project: str | None, cfg: dict[str, Any] | None = None) -> list[str]:
+    """SQL IN 过滤：含 legacy 别名，迁移前后筛选一致。"""
+    canon = canonical_project_id(project, cfg)
+    if not canon:
+        return []
+    vals = [canon]
+    for legacy, target in LEGACY_PROJECT_ALIASES.items():
+        if target == canon and legacy not in vals:
+            vals.append(legacy)
+    return vals
+
+
 def sanitize_display_project(project_id: str | None) -> str | None:
     """API/UI 展示：非用户工作区项目不显示 project 标签。"""
-    pid = (project_id or "").strip()
+    pid = canonical_project_id(project_id)
     if not pid:
         return None
     return pid if is_listable_project_id(pid) else None
@@ -521,6 +566,49 @@ def _cursor_projects_base(cfg: dict[str, Any] | None = None) -> Path:
 
 def _cursor_dir_slug(proj_dir: Path) -> str:
     return str(proj_dir.resolve()).replace("/", "-").lstrip("-")
+
+
+def project_from_cursor_dir_name(name: str, cfg: dict[str, Any] | None = None) -> str:
+    """Map ~/.cursor/projects/<slug> to workspace project_id (e.g. dev/project-sports)."""
+    cfg = cfg or config.load_config()
+    raw = (name or "").strip()
+    if not raw:
+        return ""
+    nl = raw.lower()
+    root = workspace_root(cfg)
+    root_slug = _cursor_dir_slug(root)
+
+    for cat in categories(cfg):
+        cat_dir = root / cat
+        if not cat_dir.is_dir():
+            continue
+        for proj_dir in cat_dir.iterdir():
+            if not proj_dir.is_dir():
+                continue
+            slug = _cursor_dir_slug(proj_dir)
+            if slug == raw or slug.lower() == nl:
+                return project_id(cat, proj_dir.name)
+
+    if nl.startswith(root_slug.lower()):
+        remainder = raw[len(root_slug) :].lstrip("-")
+        for cat in categories(cfg):
+            prefix = f"{cat}-"
+            if remainder.lower().startswith(prefix.lower()):
+                proj_name = remainder[len(prefix) :]
+                if (root / cat / proj_name).is_dir():
+                    return project_id(cat, proj_name)
+
+    leg_root = Path.home() / "Projects"
+    if leg_root.is_dir():
+        for proj_dir in leg_root.iterdir():
+            if not proj_dir.is_dir():
+                continue
+            slug = _cursor_dir_slug(proj_dir)
+            if slug == raw or slug.lower() == nl:
+                return retrieval_fallback_project(proj_dir)
+
+    parts = raw.split("-")
+    return parts[-1] if parts else raw
 
 
 def find_cursor_project_dirs(
@@ -977,12 +1065,28 @@ def audit_projects(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
 
 
 def list_junk_project_ids(cfg: dict[str, Any] | None = None) -> list[str]:
-    """应清理的无效项目：索引幽灵 + 可弃用的导出镜像。"""
+    """应清理的无效项目：索引幽灵 + cursor 别名 + 可弃用的导出镜像。"""
+    cfg = cfg or config.load_config()
     audit = audit_projects(cfg)
     junk = [x["id"] for x in audit["indexed_only"]]
     for item in audit["workspace"]:
         if item["id"] == "dev/qr-export":
             junk.append(item["id"])
+    meta_keep = frozenset({"qr-config", "qr-standards"})
+    from . import db
+
+    with db.session() as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT project FROM documents WHERE project IS NOT NULL",
+        ).fetchall()
+    seen = set(junk)
+    for row in rows:
+        pid = (row["project"] or "").strip()
+        if not pid or pid in seen or pid in meta_keep:
+            continue
+        if pid.startswith("cursor-") or not is_listable_project_id(pid, cfg):
+            junk.append(pid)
+            seen.add(pid)
     return junk
 
 

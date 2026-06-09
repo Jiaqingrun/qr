@@ -14,6 +14,7 @@ _AGENT_LABELS = [
     "com.qr.auto",
     "com.qr.weekly",
     "com.qr.daily",
+    "com.qr.eval",
     "com.qr.web",
     "com.qr.web-watch",
 ]
@@ -24,6 +25,7 @@ _AGENT_TITLES = {
     "com.qr.auto": "自动收录",
     "com.qr.weekly": "每周总结",
     "com.qr.daily": "每日总结",
+    "com.qr.eval": "每月模型评测",
     "com.qr.web": "Web 服务",
     "com.qr.web-watch": "Web 健康巡检",
 }
@@ -189,4 +191,23 @@ def install_schedule(*, include_web: bool = False) -> dict[str, Any]:
         "ok": True,
         **result,
         "schedule": schedule_detail(),
+    }
+
+
+def uninstall_schedule_agent(label: str) -> dict[str, Any]:
+    from . import schedule_service
+
+    label = (label or "").strip()
+    if label not in _AGENT_LABELS:
+        return {"ok": False, "error": f"未知任务: {label}"}
+    try:
+        result = schedule_service.uninstall_agent(label)
+    except OSError as e:
+        return {"ok": False, "error": str(e)}
+    if not result.get("ok"):
+        return result
+    return {
+        **result,
+        "schedule": schedule_detail(),
+        "title": _AGENT_TITLES.get(label, label),
     }

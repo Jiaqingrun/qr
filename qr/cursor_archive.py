@@ -107,11 +107,17 @@ def parse_transcript_turns(path: Path) -> list[dict]:
     except OSError:
         return []
     if turns:
-        known_idx = {i for i, t in enumerate(turns) if t.get("ts")}
         cursor_col._assign_query_times(turns, path)
+        from . import cursor_bubble_time
+
+        cfg = config.load_config()
+        cursor_bubble_time.apply_precise_times(
+            path.stem, turns, cfg=cfg,
+        )
         for i, t in enumerate(turns):
             t["query_index"] = i
-            t["ts_estimated"] = i not in known_idx
+            if t.get("ts_estimated") is not False:
+                t["ts_estimated"] = True
     return turns
 
 

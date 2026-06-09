@@ -78,6 +78,7 @@ def search(
     *,
     limit: int = 40,
     source: str | None = None,
+    project: str | None = None,
     date_from_ts: int | None = None,
     date_to_ts: int | None = None,
 ) -> list[dict[str, Any]]:
@@ -96,6 +97,7 @@ def search(
 
     proj_cond, proj_args = workspace.events_project_sql_filter()
     hidden = workspace.events_timeline_hidden_sql()
+    proj_filter = workspace.project_filter_values(project) if project else []
     out: list[dict[str, Any]] = []
     for fr in fts_rows:
         uid = fr["uid"]
@@ -107,6 +109,8 @@ def search(
         if not row:
             continue
         if source and row["source"] != source:
+            continue
+        if proj_filter and (row["project"] or "") not in proj_filter:
             continue
         if date_from_ts and int(row["ts"]) < date_from_ts:
             continue
@@ -121,6 +125,7 @@ def search(
             "ts": row["ts"],
             "source": row["source"],
             "project": workspace.sanitize_display_project(row["project"]),
+            "project_label": workspace.project_timeline_label(row["project"]),
             "title": row["title"],
             "content": row["content"],
             "score": float(-fr["rank"]),

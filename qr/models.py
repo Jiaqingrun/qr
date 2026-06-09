@@ -2,31 +2,19 @@ from __future__ import annotations
 
 from . import config
 
-# 问答可选的四个 Ollama 模型（与 config.ask_models 合并，以 config 为准）
+# 问答可选模型（与 config.ask_models 合并，以 config 为准）
 _DEFAULT_ASK_MODELS: list[dict] = [
-    {
-        "id": "qwen2.5:32b",
-        "label": "Qwen 2.5 · 32B",
-        "hint": "速度快，适合日常查阅",
-        "reasoning": False,
-    },
     {
         "id": "qwen2.5:72b",
         "label": "Qwen 2.5 · 72B",
-        "hint": "默认推荐，综合质量好",
+        "hint": "默认推荐，日常查阅与总结",
         "reasoning": False,
         "default": True,
     },
     {
         "id": "deepseek-r1:32b",
         "label": "DeepSeek R1 · 32B",
-        "hint": "推理链，比 70B 快",
-        "reasoning": True,
-    },
-    {
-        "id": "deepseek-r1:70b",
-        "label": "DeepSeek R1 · 70B",
-        "hint": "强推理，最慢",
+        "hint": "深度推理，复杂架构与因果分析",
         "reasoning": True,
     },
 ]

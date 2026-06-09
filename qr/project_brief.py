@@ -377,6 +377,37 @@ def detect_active_project(hours: int = 8) -> tuple[str | None, str]:
     return None, "none"
 
 
+def ask_context_block(project: str | None) -> str:
+    """问答 prompt 用：项目简介 + README 未完成项。"""
+    if not project or not str(project).strip():
+        return ""
+    b = brief(str(project).strip(), prefer_detected=False)
+    if b.get("error") or not b.get("project"):
+        return ""
+    lines = [f"项目: {b['project']}"]
+    if b.get("purpose"):
+        lines.append(f"用途: {b['purpose']}")
+    if b.get("features_short"):
+        lines.append(f"功能: {b['features_short']}")
+    open_f = [
+        str(t.get("text", ""))[:120]
+        for t in (b.get("feature_tasks") or [])
+        if not t.get("done") and t.get("text")
+    ]
+    open_o = [
+        str(t.get("text", ""))[:120]
+        for t in (b.get("opt_tasks") or [])
+        if not t.get("done") and t.get("text")
+    ]
+    pending = open_f + open_o
+    if pending:
+        lines.append("README 未完成项:")
+        lines.extend(f"- {t}" for t in pending[:8])
+    if b.get("completion_label"):
+        lines.append(f"完成度: {b['completion_label']}")
+    return "\n".join(lines)
+
+
 def brief(project: str, *, prefer_detected: bool = False) -> dict[str, Any]:
     cfg = config.load_config()
     pid = workspace.normalize_project_id(project.strip()) if project.strip() else ""

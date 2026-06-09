@@ -10,6 +10,7 @@ from pathlib import Path
 
 from fastapi import BackgroundTasks, FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import (
@@ -49,6 +50,7 @@ from .ollama_client import Ollama, OllamaError
 STATIC = Path(__file__).resolve().parent / "static"
 
 app = FastAPI(title="QR本地知识库")
+app.mount("/assets", StaticFiles(directory=STATIC), name="assets")
 _log = logging.getLogger(__name__)
 _db_ready = threading.Event()
 
@@ -251,10 +253,7 @@ def status():
             },
             status_code=500,
         )
-    try:
-        ollama_tags = Ollama().health()
-    except OllamaError:
-        ollama_tags = []
+    ollama_tags = dash.get("ollama_tags") or []
     return {
         "events": dash["events"],
         "event_total": dash["event_total"],
@@ -298,6 +297,8 @@ def api_ask_models():
 
 class OpenBody(BaseModel):
     path: str
+    line: int | None = None
+    editor: str | None = None
 
 
 def _parse_day(s: str) -> datetime.datetime:
@@ -328,11 +329,13 @@ def events(
     limit: int = 50,
     page: int = 1,
     source: str | None = None,
+    project: str | None = None,
     date: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
     sort: str = "time",
     q: str | None = None,
+    include_related: bool = False,
 ):
     limit = max(1, min(limit, 100))
     page = max(1, page)
@@ -348,6 +351,7 @@ def events(
         with db.session() as conn:
             items = timeline_search.search(
                 conn, q.strip(), limit=limit, source=source or None,
+                project=project or None,
                 date_from_ts=d_from_ts, date_to_ts=d_to_ts,
             )
             out = []
@@ -365,6 +369,7 @@ def events(
                     "time": tlabel,
                     "source": row["source"],
                     "project": workspace.sanitize_display_project(row["project"]),
+                    "project_label": workspace.project_timeline_label(row["project"]),
                     "title": row["title"],
                     "content": row["content"],
                     "score": it.get("score"),
@@ -375,13 +380,14 @@ def events(
                 )
                 if link:
                     item["link"] = link
-                rel = event_links.related_for_event(
-                    conn, uid=row["uid"], source=row["source"],
-                    title=row["title"] or "", content=row["content"] or "",
-                    meta=row["meta"], ts=int(row["ts"]),
-                )
-                if rel:
-                    item["related"] = rel
+                if include_related:
+                    rel = event_links.related_for_event(
+                        conn, uid=row["uid"], source=row["source"],
+                        title=row["title"] or "", content=row["content"] or "",
+                        meta=row["meta"], ts=int(row["ts"]),
+                    )
+                    if rel:
+                        item["related"] = rel
                 out.append(item)
         return {
             "items": out,
@@ -399,6 +405,12 @@ def events(
     if source:
         where.append("source=?")
         args.append(source)
+    if project and project.strip():
+        pvals = workspace.project_filter_values(project.strip())
+        if pvals:
+            ph = ",".join("?" * len(pvals))
+            where.append(f"project IN ({ph})")
+            args.extend(pvals)
 
     try:
         if date:
@@ -431,18 +443,15 @@ def events(
     where.append(workspace.events_timeline_hidden_sql())
 
     clause = (" WHERE " + " AND ".join(where)) if where else ""
-    with db.session() as conn:
-        total = conn.execute(f"SELECT COUNT(*) c FROM events{clause}", args).fetchone()["c"]
-
-    pages = max(1, (total + limit - 1) // limit) if total else 1
-    page = min(page, pages)
-    offset = (page - 1) * limit
-
-    order = _EVENT_ORDER_ACTIVITY if sort == "activity" else "ts DESC, id DESC"
     from . import event_links
 
     out = []
     with db.session() as conn:
+        total = conn.execute(f"SELECT COUNT(*) c FROM events{clause}", args).fetchone()["c"]
+        pages = max(1, (total + limit - 1) // limit) if total else 1
+        page = min(page, pages)
+        offset = (page - 1) * limit
+        order = _EVENT_ORDER_ACTIVITY if sort == "activity" else "ts DESC, id DESC"
         rows = conn.execute(
             f"SELECT uid, ts, source, project, title, content, meta FROM events{clause} "
             f"ORDER BY {order} LIMIT ? OFFSET ?",
@@ -474,6 +483,7 @@ def events(
                 "ts_estimated": ts_estimated,
                 "source": r["source"],
                 "project": workspace.sanitize_display_project(r["project"]),
+                "project_label": workspace.project_timeline_label(r["project"]),
                 "title": r["title"],
                 "content": r["content"],
                 "has_reply": has_reply,
@@ -488,17 +498,18 @@ def events(
             )
             if link:
                 item["link"] = link
-            rel = event_links.related_for_event(
-                conn,
-                uid=r["uid"],
-                source=r["source"],
-                title=r["title"] or "",
-                content=r["content"] or "",
-                meta=r["meta"],
-                ts=int(r["ts"]),
-            )
-            if rel:
-                item["related"] = rel
+            if include_related:
+                rel = event_links.related_for_event(
+                    conn,
+                    uid=r["uid"],
+                    source=r["source"],
+                    title=r["title"] or "",
+                    content=r["content"] or "",
+                    meta=r["meta"],
+                    ts=int(r["ts"]),
+                )
+                if rel:
+                    item["related"] = rel
             out.append(item)
 
     return {
@@ -515,10 +526,35 @@ def events(
     }
 
 
+@app.get("/api/events/{uid}/related")
+def event_related(uid: str, limit: int = 8):
+    """单条时间线事件的关联项（懒加载，避免列表页 N+1 查询）。"""
+    from . import event_links
+
+    with db.session() as conn:
+        row = conn.execute(
+            "SELECT uid, ts, source, project, title, content, meta FROM events WHERE uid=?",
+            (uid,),
+        ).fetchone()
+        if not row:
+            return JSONResponse({"error": "未找到事件"}, status_code=404)
+        rel = event_links.related_for_event(
+            conn,
+            uid=row["uid"],
+            source=row["source"],
+            title=row["title"] or "",
+            content=row["content"] or "",
+            meta=row["meta"],
+            ts=int(row["ts"]),
+            limit=max(1, min(limit, 20)),
+        )
+    return {"uid": uid, "related": rel}
+
+
 @app.post("/api/open")
 def api_open(body: OpenBody):
     try:
-        links.open_path(body.path)
+        links.open_path(body.path, line=body.line, editor=body.editor)
         return {"ok": True}
     except PermissionError as e:
         return JSONResponse({"error": str(e)}, status_code=403)
@@ -1053,9 +1089,15 @@ def api_standards():
 
 @app.get("/api/standards/changelog")
 def api_standards_changelog(prune: bool = False):
-    """只读沿革；清理请用 POST /api/standards/changelog/prune。"""
+    """只读规范沿革；清理请用 POST /api/standards/changelog/prune。"""
     governance.ensure_standards()
     return standards_changelog.build_changelog(prune_identical=prune)
+
+
+@app.get("/api/standards/history")
+def api_standards_history(prune: bool = False):
+    """规范沿革（与 /api/standards/changelog 相同，推荐新代码使用本路径）。"""
+    return api_standards_changelog(prune=prune)
 
 
 @app.post("/api/standards/changelog/prune")
@@ -1080,12 +1122,17 @@ def api_standards_version(vid: int):
 def api_standards_revise(body: ReviseBody):
     try:
         if body.from_conversations:
-            content, version_saved = governance.revise_from_conversations(body.period)
+            content, version_saved, content_changed = governance.revise_from_conversations(
+                body.period
+            )
         else:
-            content, version_saved = governance.revise_from_behavior(body.period)
+            content, version_saved, content_changed = governance.revise_from_behavior(
+                body.period
+            )
         return {
             "content": content,
             "version_saved": version_saved,
+            "content_changed": content_changed,
             "versions": governance.list_versions(),
         }
     except OllamaError as e:
@@ -1196,6 +1243,21 @@ def api_notify(body: NotifyBody):
     return {"notified": ok}
 
 
+def _project_brief_response(project: str = "", *, auto: bool = True):
+    if project.strip():
+        pid = workspace.normalize_project_id(project.strip())
+        return project_brief.brief(pid, prefer_detected=False)
+    if auto:
+        return project_brief.brief("", prefer_detected=True)
+    return JSONResponse({"error": "缺少 project 参数"}, status_code=400)
+
+
+@app.get("/api/project/brief")
+def api_project_brief(project: str = "", auto: bool = True):
+    """项目简介（用途 / 功能点 / 完成度）。"""
+    return _project_brief_response(project, auto=auto)
+
+
 @app.get("/api/project")
 def api_project_panel(
     project: str = "",
@@ -1203,26 +1265,24 @@ def api_project_panel(
     focus: bool = False,
     auto: bool = True,
 ):
-    """focus=1：顶栏项目简介（用途/功能/完成度）；否则为项目面板数据。"""
+    """focus=1：项目简介；否则为项目体检面板。"""
     if focus:
-        if project.strip():
-            return project_brief.brief(project.strip(), prefer_detected=False)
-        if auto:
-            return project_brief.brief("", prefer_detected=True)
-        return JSONResponse({"error": "缺少 project 参数"}, status_code=400)
+        return _project_brief_response(project, auto=auto)
     if not project.strip():
         return JSONResponse({"error": "缺少 project 参数"}, status_code=400)
-    return project_panel.panel(project.strip(), days=max(1, min(days, 90)))
+    pid = workspace.normalize_project_id(project.strip())
+    return project_panel.panel(pid, days=max(1, min(days, 90)))
 
 
 @app.get("/api/project/focus")
 def api_project_focus(project: str | None = None, auto: bool = True):
-    """兼容旧路径；与 /api/project?focus=1 相同。"""
-    if project and project.strip():
-        return project_brief.brief(project.strip(), prefer_detected=False)
-    if auto:
-        return project_brief.brief("", prefer_detected=True)
-    return JSONResponse({"error": "缺少 project 参数"}, status_code=400)
+    """已废弃：请用 /api/project/brief。"""
+    body = _project_brief_response(project or "", auto=auto)
+    dep = {"Deprecation": "true", "Link": '</api/project/brief>; rel="successor-version"'}
+    if isinstance(body, JSONResponse):
+        body.headers.update(dep)
+        return body
+    return JSONResponse(content=body, headers=dep)
 
 
 @app.post("/api/project/approve")
@@ -1283,6 +1343,18 @@ class PromptFragmentsDeleteBody(BaseModel):
 
 class PromptSessionsDeleteBody(BaseModel):
     session_ids: list[str]
+
+
+class PromptRefineGenerateBody(BaseModel):
+    limit: int = 5
+    include_inbox: bool = True
+    include_raw_guides: bool = True
+    model: str | None = None
+
+
+class PromptRefineApproveBody(BaseModel):
+    title: str | None = None
+    body: str | None = None
 
 
 @app.get("/api/prompts/stats")
@@ -1406,12 +1478,19 @@ def api_prompts_fragment_type(fid: int, body: PromptFragmentTypeBody):
 
 
 @app.get("/api/prompts/guides")
-def api_prompts_guides(type_id: int | None = None, origin: str | None = None):
+def api_prompts_guides(
+    type_id: int | None = None,
+    origin: str | None = None,
+    project: str | None = None,
+):
     db.init_db()
     with db.session() as conn:
         return {
             "guides": prompt_guides.list_guides(
-                conn, type_id=type_id, origin=origin or None,
+                conn,
+                type_id=type_id,
+                origin=origin or None,
+                project=project or None,
             ),
         }
 
@@ -1464,6 +1543,83 @@ def api_prompts_guide_delete(gid: int):
     with db.session() as conn:
         prompt_guides.delete_guide(conn, gid)
         return {"ok": True}
+
+
+@app.get("/api/prompts/refine/candidates")
+def api_prompts_refine_candidates(
+    include_inbox: bool = True,
+    include_raw_guides: bool = True,
+):
+    from . import prompt_refine
+
+    db.init_db()
+    with db.session() as conn:
+        items = prompt_refine.list_candidates(
+            conn,
+            include_inbox=include_inbox,
+            include_raw_guides=include_raw_guides,
+        )
+        pending = prompt_refine.list_proposals(conn, status=prompt_refine.STATUS_PENDING)
+        return {"candidates": items, "pending_count": len(pending)}
+
+
+@app.get("/api/prompts/refine/proposals")
+def api_prompts_refine_proposals(status: str = "pending"):
+    from . import prompt_refine
+
+    db.init_db()
+    with db.session() as conn:
+        return {
+            "proposals": prompt_refine.list_proposals(conn, status=status),
+        }
+
+
+@app.post("/api/prompts/refine/generate")
+def api_prompts_refine_generate(body: PromptRefineGenerateBody):
+    from . import prompt_refine
+    from .ollama_client import OllamaError
+
+    db.init_db()
+    try:
+        with db.session() as conn:
+            result = prompt_refine.generate_proposals(
+                conn,
+                limit=max(1, min(body.limit, 20)),
+                include_inbox=body.include_inbox,
+                include_raw_guides=body.include_raw_guides,
+                model=body.model,
+            )
+        return {"ok": True, **result}
+    except OllamaError as e:
+        return JSONResponse({"error": str(e)}, status_code=502)
+
+
+@app.post("/api/prompts/refine/proposals/{pid}/approve")
+def api_prompts_refine_approve(pid: int, body: PromptRefineApproveBody):
+    from . import prompt_refine
+
+    db.init_db()
+    try:
+        with db.session() as conn:
+            result = prompt_refine.approve_proposal(
+                conn, pid, title=body.title, body=body.body,
+            )
+        return {"ok": True, **result}
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@app.post("/api/prompts/refine/proposals/{pid}/reject")
+def api_prompts_refine_reject(pid: int):
+    from . import prompt_refine
+
+    db.init_db()
+    try:
+        with db.session() as conn:
+            prompt_refine.reject_proposal(conn, pid)
+        return {"ok": True}
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
 
 
 @app.get("/api/eval/cases")
@@ -1645,7 +1801,7 @@ def _suggestions_for_case(case_id: str, answer_preview: str, hits: list[dict]) -
         tips.append("将 transcript 类文档在框架识别场景降权，优先 package.json 与框架配置文件")
     if "不知道" in ap or "无法" in ap:
         tips.append("补充索引覆盖：检查目标配置文件是否已纳入索引并完成 reindex")
-    if "nomic" in ap or "默认" in ap:
+    if "bge-m3" in ap or "nomic" in ap or "默认" in ap:
         tips.append("清理过时文档：统一 README 与运行时 config 的默认值")
     if "agent-transcripts" in hit_paths:
         tips.append("为问答增加 source_type 过滤：配置类问题优先代码/配置文档，降低 transcript 权重")
@@ -1773,36 +1929,18 @@ def api_eval_execute(body: EvalActionBody):
 
 @app.post("/api/eval/run")
 def api_eval_run():
-    import shutil
-    import sys
+    from . import eval_runner
 
-    script = config.REPO_ROOT / "scripts" / "model_eval.py"
-    if not script.exists():
-        return JSONResponse({"error": f"评测脚本不存在: {script}"}, status_code=404)
-    py = sys.executable
-    if not Path(py).exists():
-        py = shutil.which("python3") or py
-    try:
-        proc = subprocess.run(
-            [py, str(script)],
-            cwd=str(config.REPO_ROOT),
-            capture_output=True,
-            text=True,
-            timeout=1800,
-        )
-    except subprocess.TimeoutExpired:
-        return JSONResponse({"error": "评测超时（30分钟）"}, status_code=504)
-    except FileNotFoundError:
-        return JSONResponse({"error": f"找不到 Python 解释器: {py}"}, status_code=500)
-    if proc.returncode != 0:
-        msg = (proc.stderr or proc.stdout or "").strip()[-1200:]
-        return JSONResponse({"error": f"评测失败: {msg}"}, status_code=500)
-    cur = config.LOGS_DIR / "model_eval.json"
-    if cur.exists():
-        stamp = time.strftime("%Y%m%d-%H%M%S", time.localtime())
-        snap = config.LOGS_DIR / f"model_eval-{stamp}.json"
-        snap.write_text(cur.read_text(encoding="utf-8"), encoding="utf-8")
-    return {"ok": True, "message": "评测完成", "stdout": (proc.stdout or "")[-1200:]}
+    result = eval_runner.run_model_eval()
+    if not result.get("ok"):
+        return JSONResponse({"error": result.get("error", "评测失败")}, status_code=500)
+    return {
+        "ok": True,
+        "message": "评测完成",
+        "path": result.get("path"),
+        "snapshot": result.get("snapshot"),
+        "stdout": result.get("stdout"),
+    }
 
 
 @app.get("/api/usage")
@@ -1815,6 +1953,10 @@ def api_usage(period: str = "day"):
 class OpsImportBody(BaseModel):
     paths: list[str]
     move: bool = False
+
+
+class OpsScheduleUninstallBody(BaseModel):
+    label: str
 
 
 @app.get("/api/ops/overview")
@@ -1864,11 +2006,18 @@ def api_ops_index_health(body: dict | None = None):
     return ops_panel.index_health(cleanup=cleanup)
 
 
-@app.get("/api/changelog/{project}")
+@app.get("/api/changelog")
 def api_changelog(project: str, days: int = 7):
     from . import changelog
 
-    return changelog.generate(project, days=max(1, min(days, 90)))
+    pid = workspace.normalize_project_id(project.strip())
+    return changelog.generate(pid, days=max(1, min(days, 90)))
+
+
+@app.get("/api/changelog/{project:path}")
+def api_changelog_path(project: str, days: int = 7):
+    """兼容路径形式 /api/changelog/dev/qr。"""
+    return api_changelog(project=project, days=days)
 
 
 @app.get("/api/alerts")
@@ -1877,6 +2026,48 @@ def api_alerts():
 
     items = proactive.collect_all()
     return {"alerts": items}
+
+
+@app.get("/api/today")
+def api_today():
+    from . import today_panel
+
+    db.init_db()
+    with db.session() as conn:
+        return today_panel.generate(conn)
+
+
+class DailyPlanToggleBody(BaseModel):
+    id: str
+    done: bool
+    date: str | None = None
+
+
+@app.get("/api/insight/daily-plan")
+def api_insight_daily_plan(date: str | None = None):
+    from . import daily_plan
+
+    return daily_plan.list_for_date(date)
+
+
+@app.post("/api/insight/daily-plan/toggle")
+def api_insight_daily_plan_toggle(body: DailyPlanToggleBody):
+    from . import daily_plan
+
+    try:
+        return daily_plan.set_done(body.id, body.done, day=body.date)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@app.get("/api/symbol")
+def api_symbol(name: str, project: str | None = None, limit: int = 20):
+    from . import symbol_index
+
+    db.init_db()
+    pid = workspace.normalize_project_id(project) if project and project.strip() else None
+    hits = symbol_index.search(name, project=pid, limit=max(1, min(limit, 50)))
+    return {"hits": hits, "stats": symbol_index.stats()}
 
 
 @app.post("/api/ops/git-sync-roots")
@@ -1895,6 +2086,19 @@ def api_ops_import(body: OpsImportBody):
     result = ops_panel.import_paths(body.paths, move=body.move)
     if not result.get("ok"):
         return JSONResponse(result, status_code=400)
+    return result
+
+
+@app.post("/api/ops/schedule/uninstall")
+def api_ops_schedule_uninstall(body: OpsScheduleUninstallBody):
+    result = ops_panel.uninstall_schedule_agent(body.label)
+    if not result.get("ok"):
+        return JSONResponse(result, status_code=400)
+    ops_timeline.log_safe(
+        action="ops.schedule.uninstall",
+        title="[知识库] 卸载定时任务",
+        content=f"{result.get('title') or body.label} ({body.label})",
+    )
     return result
 
 

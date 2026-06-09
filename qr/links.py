@@ -113,8 +113,17 @@ def event_link(
     return None
 
 
-def open_path(path: str) -> None:
+def open_path(path: str, line: int | None = None, editor: str | None = None) -> None:
     p = Path(path).expanduser().resolve()
     if not path_allowed(p):
         raise PermissionError("路径不在允许范围内")
+    if line is not None and int(line) > 0:
+        editor = (editor or config.load_config().get("open_editor") or "cursor").lower()
+        ln = int(line)
+        if editor == "cursor":
+            subprocess.run(["open", f"cursor://file/{p}:{ln}"], check=True)
+            return
+        if editor in ("vscode", "code"):
+            subprocess.run(["open", f"vscode://file/{p}:{ln}"], check=True)
+            return
     subprocess.run(["open", str(p)], check=True)

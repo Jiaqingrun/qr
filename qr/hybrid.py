@@ -20,14 +20,17 @@ def fts_search(
     project: str | None = None,
     category: str | None = None,
 ) -> list[dict]:
+    from . import retrieval_boost
+
     match = _fts_query(question)
     if not match:
         return []
+    db_limit = retrieval_boost.vec_fetch_limit(k, project, category)
     try:
         rows = conn.execute(
             "SELECT chunk_id, bm25(chunks_fts) AS rank FROM chunks_fts "
             "WHERE chunks_fts MATCH ? ORDER BY rank LIMIT ?",
-            (match, k * 3),
+            (match, db_limit),
         ).fetchall()
     except sqlite3.OperationalError:
         return []

@@ -4,11 +4,11 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from . import compliance, config, db, facts, timeutil
+from . import compliance, config, db, facts, timeutil, workspace
 
 
 def generate(project: str, days: int = 7) -> dict[str, Any]:
-    project = (project or "").strip()
+    project = workspace.normalize_project_id((project or "").strip())
     if not project:
         return {"error": "project 不能为空"}
     since = db.now() - days * 86400

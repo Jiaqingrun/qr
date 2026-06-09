@@ -5,11 +5,21 @@ import os
 import re
 import sqlite3
 import subprocess
+import time
 from pathlib import Path
+from typing import Any
 
 from . import config, db, permissions, scan_paths, shell_check
 
 _SHELL_TS_RE = re.compile(r"^: \d+:\d+;")
+
+_STATUS_CACHE: dict[str, Any] = {"ts": 0.0, "payload": None}
+STATUS_CACHE_TTL = 45.0
+
+
+def invalidate_status_cache() -> None:
+    _STATUS_CACHE["ts"] = 0.0
+    _STATUS_CACHE["payload"] = None
 
 
 def _cursor_ts_coverage(conn: sqlite3.Connection) -> dict:
@@ -88,8 +98,8 @@ def _tracker_health() -> dict:
 def _schedule_loaded() -> dict:
     out = subprocess.run(["launchctl", "list"], capture_output=True, text=True).stdout
     labels = [
-        "com.qr.tracker", "com.qr.cursor", "com.qr.auto", "com.qr.web",
-        "com.qr.web-watch",
+        "com.qr.tracker", "com.qr.cursor", "com.qr.auto", "com.qr.eval",
+        "com.qr.web", "com.qr.web-watch",
     ]
     loaded = {lb: lb in out for lb in labels}
     return {"agents": loaded, "ok": all(loaded.values())}
@@ -134,7 +144,7 @@ def diagnose(conn: sqlite3.Connection | None = None) -> dict:
                     f"Cursor 提问 {cov['estimated']}/{cov['total']} 条为估算时间"
                     f"（对话无 <timestamp> 标签）"
                 ),
-                "fix": "时间线已标注「约」；新对话尽量保留 Cursor 时间戳",
+                "fix": "运行 qr backfill --source cursor 从 state.vscdb 回填精确时间",
             })
         elif cov["total"]:
             ok_items.append(f"Cursor 时间 {cov['pct_exact']}% 为精确戳")
@@ -312,6 +322,25 @@ def diagnose(conn: sqlite3.Connection | None = None) -> dict:
                 "fix": "qr backup 创建备份；qr backup --verify 校验",
             })
 
+        from . import ui_audit
+
+        ua = ui_audit.audit_ui(strict_api=True)
+        if ua.get("ok"):
+            ok_items.append(
+                f"Web UI 自检通过（{ua.get('buttons', 0)} 按钮 · "
+                f"{ua.get('search_inputs', 0)} 搜索框）"
+            )
+        else:
+            for ui in ua.get("issues") or []:
+                if ui.get("level") not in ("error", "warn"):
+                    continue
+                issues.append({
+                    "area": "web_ui",
+                    "level": ui["level"],
+                    "message": ui.get("message", ""),
+                    "fix": "检查 static/index.html 与 js/qr-features.js；qr web --restart",
+                })
+
         return {
             "ok": not any(i["level"] == "error" for i in issues),
             "issues": issues,
@@ -336,10 +365,17 @@ def _pillar_status(levels: list[str]) -> str:
     return "ok"
 
 
-def status_dashboard(conn: sqlite3.Connection) -> dict:
+def status_dashboard(conn: sqlite3.Connection, *, use_cache: bool = True) -> dict:
     """
     四象限系统状态（采集 / 索引 / 对话 / 运维），供 Web 侧栏 1×4 展示。
+    默认缓存 45 秒，避免每次轮询跑完整体检。
     """
+    if use_cache:
+        age = time.time() - float(_STATUS_CACHE["ts"])
+        cached = _STATUS_CACHE.get("payload")
+        if cached and age < STATUS_CACHE_TTL:
+            return dict(cached)
+
     from . import prompt_guides, query
     from .ollama_client import Ollama, OllamaError
 
@@ -481,7 +517,7 @@ def status_dashboard(conn: sqlite3.Connection) -> dict:
     else:
         summary = f"运行正常 · {ok_n} 项检查通过"
 
-    return {
+    result = {
         "pillars": pillars,
         "summary": summary,
         "health_ok": diag["ok"],
@@ -500,5 +536,10 @@ def status_dashboard(conn: sqlite3.Connection) -> dict:
         "schedule_total": sched_total,
         "ollama_ok": ollama_ok,
         "ollama_models": len(ollama_tags),
+        "ollama_tags": ollama_tags,
         "backend": backend,
     }
+    if use_cache:
+        _STATUS_CACHE["payload"] = result
+        _STATUS_CACHE["ts"] = time.time()
+    return result

@@ -108,3 +108,120 @@ def cleanup_orphans(
     finally:
         if own:
             conn.close()
+
+
+def scan_vectors(conn: sqlite3.Connection) -> dict[str, Any]:
+    """检测孤儿向量块、维度不一致块、vec 表与 chunks 不同步。"""
+    expected_dim = int(config.load_config().get("embed_dim", 768))
+    wrong_dim = int(
+        conn.execute(
+            "SELECT COUNT(*) c FROM chunks WHERE dim != ?", (expected_dim,),
+        ).fetchone()["c"]
+    )
+    stale_vec = 0
+    missing_vec = 0
+    if db.vec_available():
+        stale_vec = int(
+            conn.execute(
+                "SELECT COUNT(*) c FROM vec_chunks "
+                "WHERE rowid NOT IN (SELECT id FROM chunks)",
+            ).fetchone()["c"]
+        )
+        missing_vec = int(
+            conn.execute(
+                "SELECT COUNT(*) c FROM chunks "
+                "WHERE id NOT IN (SELECT rowid FROM vec_chunks)",
+            ).fetchone()["c"]
+        )
+    return {
+        "embed_dim": expected_dim,
+        "wrong_dim_chunks": wrong_dim,
+        "stale_vec_rows": stale_vec,
+        "missing_vec_rows": missing_vec,
+        "ok": wrong_dim == 0 and stale_vec == 0 and missing_vec == 0,
+    }
+
+
+def _delete_document(conn: sqlite3.Connection, doc_id: int) -> int:
+    cids = [
+        int(r["id"])
+        for r in conn.execute("SELECT id FROM chunks WHERE doc_id=?", (doc_id,)).fetchall()
+    ]
+    for cid in cids:
+        if db.vec_available():
+            try:
+                conn.execute("DELETE FROM vec_chunks WHERE rowid=?", (cid,))
+            except sqlite3.OperationalError:
+                pass
+    db.fts_delete_doc(conn, doc_id)
+    conn.execute("DELETE FROM chunks WHERE doc_id=?", (doc_id,))
+    conn.execute("DELETE FROM documents WHERE id=?", (doc_id,))
+    return len(cids)
+
+
+def cleanup_stale_vectors(
+    conn: sqlite3.Connection | None = None,
+    *,
+    dry_run: bool = False,
+) -> dict[str, int]:
+    """删除 vec_chunks 中无对应 chunk 的孤儿行。"""
+    own = conn is None
+    if own:
+        db.init_db()
+        conn = db.connect()
+    stats = {"vec_removed": 0}
+    try:
+        if not db.vec_available():
+            return stats
+        rows = conn.execute(
+            "SELECT rowid FROM vec_chunks "
+            "WHERE rowid NOT IN (SELECT id FROM chunks)",
+        ).fetchall()
+        stats["vec_removed"] = len(rows)
+        if dry_run or not rows:
+            return stats
+        for r in rows:
+            conn.execute("DELETE FROM vec_chunks WHERE rowid=?", (int(r["rowid"]),))
+        conn.commit()
+        return stats
+    finally:
+        if own:
+            conn.close()
+
+
+def cleanup_wrong_dim_chunks(
+    conn: sqlite3.Connection | None = None,
+    *,
+    dry_run: bool = False,
+) -> dict[str, int]:
+    """删除维度与 embed_dim 不一致的文档索引（需后续 qr index 补回）。"""
+    own = conn is None
+    if own:
+        db.init_db()
+        conn = db.connect()
+    expected_dim = int(config.load_config().get("embed_dim", 768))
+    stats = {"documents_removed": 0, "chunks_removed": 0}
+    try:
+        doc_ids = [
+            int(r["doc_id"])
+            for r in conn.execute(
+                "SELECT DISTINCT doc_id FROM chunks WHERE dim != ?", (expected_dim,),
+            ).fetchall()
+        ]
+        if dry_run:
+            for did in doc_ids:
+                n = conn.execute(
+                    "SELECT COUNT(*) c FROM chunks WHERE doc_id=?", (did,),
+                ).fetchone()["c"]
+                stats["documents_removed"] += 1
+                stats["chunks_removed"] += int(n)
+            return stats
+        for did in doc_ids:
+            stats["chunks_removed"] += _delete_document(conn, did)
+            stats["documents_removed"] += 1
+        if stats["documents_removed"]:
+            conn.commit()
+        return stats
+    finally:
+        if own:
+            conn.close()

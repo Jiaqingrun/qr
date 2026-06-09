@@ -297,25 +297,37 @@ def _digest_for_revision(conn, start: int, end: int) -> str:
     return out
 
 
-def revise_from_behavior(period: str = "week") -> tuple[str, bool]:
-    """基于近期行为摘要修订全局规范（不含对话摘录）。"""
+def revise_from_behavior(period: str = "week") -> tuple[str, bool, bool]:
+    """基于近期行为摘要修订全局规范（不含对话摘录）。
+
+    返回 (正文, 是否新建归档版, 相对修订前是否有实质变更)。
+    """
     return _revise_global(period, from_conversations=False)
 
 
-def revise_from_conversations(period: str = "week") -> tuple[str, bool]:
+def revise_from_conversations(period: str = "week") -> tuple[str, bool, bool]:
     """基于行为摘要 + 全部 Cursor 对话摘录修订全局规范。"""
     return _revise_global(period, from_conversations=True)
 
 
-def _revise_global(period: str, *, from_conversations: bool) -> tuple[str, bool]:
-    from . import standards_digest, summary
+def _revise_global(period: str, *, from_conversations: bool) -> tuple[str, bool, bool]:
+    from . import config, standards_digest, summary
     from .ollama_client import Ollama
 
+    cfg = config.load_config()
+    revise_timeout = float(cfg.get("standards_revise_timeout_seconds", 1800))
     start, end = summary._window(period)
     with db.session() as conn:
         if from_conversations:
             digest = standards_digest.build_revision_context(
-                conn, start, end, project=None, include_behavior=True
+                conn,
+                start,
+                end,
+                project=None,
+                include_behavior=True,
+                conv_turn_limit=12,
+                conv_char_budget=14000,
+                conv_max_reply_chars=1200,
             )
             src = f"最近一个{period}的行为与全部 Cursor 对话"
         else:
@@ -327,7 +339,12 @@ def _revise_global(period: str, *, from_conversations: bool) -> tuple[str, bool]
         f"# {src}\n\n{digest}\n\n"
         "请输出修订后的**完整**规范 Markdown。"
     )
-    raw = Ollama().generate(prompt, system=_REVISION_SYSTEM, strip_think=True)
+    raw = Ollama().generate(
+        prompt,
+        system=_REVISION_SYSTEM,
+        strip_think=True,
+        timeout=revise_timeout,
+    )
     new = _sanitize_standards_output(raw)
     if not _is_valid_standards(new):
         raise ValueError(
@@ -340,7 +357,8 @@ def _revise_global(period: str, *, from_conversations: bool) -> tuple[str, bool]
         else f"根据最近{period}行为自动修订"
     )
     recorded = save_standards(new, note=note)
-    return new, recorded
+    changed = normalize_for_compare(current) != normalize_for_compare(new)
+    return new, recorded, changed
 
 
 def _personal_rule_mdc(standards: str) -> str:

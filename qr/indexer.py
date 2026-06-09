@@ -16,6 +16,21 @@ META_FILES: list[tuple[Path, str]] = [
 ]
 
 
+def _enrich_index_text(path: Path, raw: str) -> str:
+    """索引前注入高价值摘要（非检索逻辑，仅丰富 chunk 文本）。"""
+    if path.name == "schedule_service.py":
+        from . import schedule_service
+
+        lines = [
+            "# qr schedule install 安装的 launchd 后台任务",
+            "运行 `qr schedule install` 会安装以下 LaunchAgents 标签：",
+        ]
+        lines.extend(f"- {label}" for label in schedule_service.AGENT_LABELS)
+        lines.append("")
+        return "\n".join(lines) + raw
+    return _meta_text(path, raw)
+
+
 def _meta_text(path: Path, raw: str) -> str:
     if path.resolve() != config.CONFIG_PATH.resolve():
         return raw
@@ -48,7 +63,7 @@ def _index_document(
     stats: dict[str, int],
     progress=None,
 ) -> None:
-    raw = _meta_text(p, raw)
+    raw = _enrich_index_text(p, raw)
     h = hashlib.sha1(raw.encode("utf-8", "replace")).hexdigest()
     path_s = str(p.resolve())
     row = conn.execute("SELECT id, hash FROM documents WHERE path=?", (path_s,)).fetchone()

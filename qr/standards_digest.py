@@ -42,6 +42,9 @@ def cursor_conversation_excerpts(
     *,
     project: str | None = None,
     limit: int = _MAX_TURNS,
+    max_reply_chars: int = _MAX_EXCERPT_CHARS,
+    max_question_chars: int = 800,
+    char_budget: int | None = None,
 ) -> str:
     """读取 Cursor 归档问答片段，供规范 AI 修订。"""
     keys = project_match_keys(project) if project else None
@@ -71,9 +74,15 @@ def cursor_conversation_excerpts(
         if not q:
             continue
         ts = timeutil.format_local(int(r["ts"]))
-        block = f"### {ts}\n**问：** {q[:800]}"
+        block = f"### {ts}\n**问：** {q[:max_question_chars]}"
         if reply:
-            block += f"\n\n**答：** {reply[:_MAX_EXCERPT_CHARS]}"
+            block += f"\n\n**答：** {reply[:max_reply_chars]}"
+        if char_budget is not None:
+            prospective = "\n\n".join(lines + [block]) if lines else block
+            if len(prospective) > char_budget:
+                if not lines:
+                    lines.append(block[:char_budget].rstrip())
+                break
         lines.append(block)
         if len(lines) >= limit:
             break
@@ -90,6 +99,9 @@ def build_revision_context(
     *,
     project: str | None = None,
     include_behavior: bool = True,
+    conv_turn_limit: int | None = None,
+    conv_char_budget: int | None = None,
+    conv_max_reply_chars: int | None = None,
 ) -> str:
     from . import governance
 
@@ -109,6 +121,14 @@ def build_revision_context(
             beh = governance._digest_for_revision(conn, start, end)
         if beh:
             parts.append(f"## 行为摘要\n\n{beh}")
-    conv = cursor_conversation_excerpts(conn, start, end, project=project)
+    conv = cursor_conversation_excerpts(
+        conn,
+        start,
+        end,
+        project=project,
+        limit=conv_turn_limit or _MAX_TURNS,
+        max_reply_chars=conv_max_reply_chars or _MAX_EXCERPT_CHARS,
+        char_budget=conv_char_budget,
+    )
     parts.append(f"## Cursor 对话摘录\n\n{conv}")
     return "\n\n".join(parts)

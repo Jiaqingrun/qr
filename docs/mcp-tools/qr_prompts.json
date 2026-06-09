@@ -1,0 +1,11 @@
+{
+  "name": "qr_prompts",
+  "description": "列出 QR本地知识库 引导语或收件箱片段",
+  "arguments": {
+    "type": "object",
+    "properties": {
+      "inbox": { "type": "boolean", "default": false },
+      "limit": { "type": "integer", "default": 15 }
+    }
+  }
+}

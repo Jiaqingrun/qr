@@ -19,12 +19,15 @@ def publish_digest(days: int = 1, *, notify: bool = True) -> dict:
         extra_lines.extend(["", "## 主动提醒"])
         for a in proactive_alerts[:6]:
             extra_lines.append(f"- [{a.get('type', 'alert')}] {a.get('message', '')}")
-    root = workspace.workspace_root()
-    qr_dir = root / "dev" / "qr"
-    if qr_dir.is_dir():
+    from . import project_brief
+
+    pid, _ = project_brief.detect_active_project(hours=72)
+    if not pid:
+        pid, _ = project_brief.detect_active_project(hours=24 * 14)
+    if pid:
         try:
-            cl = changelog.generate("dev/qr", days=max(days, 7))
-            extra_lines.extend(["", "## 知识库项目简报", cl.get("content", "")[:800]])
+            cl = changelog.generate(pid, days=max(days, 7))
+            extra_lines.extend(["", f"## 活跃项目简报 · {pid}", cl.get("content", "")[:800]])
         except Exception:
             pass
     content = data["content"] + "\n".join(extra_lines)

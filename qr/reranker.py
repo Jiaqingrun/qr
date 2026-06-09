@@ -31,7 +31,8 @@ def rerank_hits(question: str, hits: list[dict], k: int, *, enabled: bool = True
         nh = dict(h)
         nh["score"] = base + boost
         scores = dict(nh.get("scores") or {})
-        scores["lexical"] = boost
+        scores["lexical"] = round(boost, 4)
+        scores["final"] = round(nh["score"], 4)
         nh["scores"] = scores
         out.append(nh)
     out.sort(key=lambda x: x["score"], reverse=True)

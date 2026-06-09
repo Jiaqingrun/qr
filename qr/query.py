@@ -5,7 +5,7 @@ from typing import Iterator
 
 import numpy as np
 
-from . import activity_context, chat, config, db, facts, hybrid, retrieval_meta, websearch
+from . import activity_context, chat, config, db, facts, hybrid, retrieval_boost, retrieval_meta, websearch
 from .ollama_client import Ollama
 from .vectors import cosine_topk, from_blob, to_blob
 
@@ -21,6 +21,8 @@ _PROJECT_STOP = {
 SYSTEM = (
     "你是用户的QR本地知识库助手。依据提供的【本地上下文】和（若有）【网络搜索结果】回答问题，"
     "标注引用来源（本地文件路径或网络链接）。若都没有答案，明确说明不知道，不要编造。用简体中文回答。"
+    "若问 qr schedule install / launchd 后台任务，须列全 com.qr.tracker、com.qr.cursor、com.qr.auto、"
+    "com.qr.weekly、com.qr.daily、com.qr.eval、com.qr.web、com.qr.web-watch（以【稳定事实】为准）。"
 )
 
 
@@ -116,40 +118,37 @@ def _framework_evidence_insufficient(question: str, hits: list[dict]) -> bool:
     return True
 
 
-def _path_boost(path: str, question: str) -> float:
-    p = path.lower().replace("\\", "/")
+def _project_ref_boost(path: str, question: str) -> float:
     boost = 0.0
-    if _is_qr_query(question):
-        if "/qr/dev/qr/" in p or "/projects/qr/" in p:
-            boost += 0.18
-        if "/.qr/" in p or p.endswith("config.json"):
-            boost += 0.16
-        for name in ("config.py", "cli.py", "chat.py", "web.py", "db.py"):
-            if f"/qr/{name}" in p or f"/qr/qr/{name}" in p:
-                boost += 0.08
-                break
     for ref in _extract_project_refs(question):
         if _path_matches_project(path, ref):
             boost += 0.22
-    if "/agent-transcripts/" in p or "cursor-" in p:
-        boost += 0.05
     return boost
 
 
+def _path_boost(path: str, question: str) -> float:
+    return retrieval_boost.path_boost(
+        path,
+        question,
+        is_qr_query=_is_qr_query,
+        project_ref_boost=_project_ref_boost,
+    )
+
+
 def _source_type_adjust(path: str, question: str) -> float:
-    st = retrieval_meta.classify_source_type(path)
-    q = question.lower()
-    if _is_qr_query(question):
-        if st == "transcript":
-            return -0.06
-        if st in ("config", "manifest", "code"):
-            return 0.04
-    if ("前端框架" in question) or ("package.json" in q):
-        if st == "manifest":
-            return 0.08
-        if st == "transcript":
-            return -0.08
-    return 0.0
+    return retrieval_boost.source_type_adjust(
+        path, question, is_qr_query=_is_qr_query,
+    )
+
+
+def _annotate_hits(hits: list[dict], question: str) -> list[dict]:
+    out: list[dict] = []
+    for h in hits:
+        boost = _path_boost(h.get("path", ""), question) + _source_type_adjust(
+            h.get("path", ""), question,
+        )
+        out.append(retrieval_meta.annotate_hit(h, question, boost))
+    return out
 
 
 def _rerank_hits(hits: list[dict], question: str, k: int) -> list[dict]:
@@ -165,10 +164,12 @@ def _search_vec(
     conn, qvec: list[float], k: int, project: str | None, category: str | None = None,
 ) -> list[dict]:
     db.sync_vec(conn)
+    cfg = config.load_config()
+    db_limit = retrieval_boost.vec_fetch_limit(k, project, category, cfg)
     rows = conn.execute(
         "SELECT rowid, distance FROM vec_chunks "
         "WHERE embedding MATCH ? ORDER BY distance LIMIT ?",
-        (to_blob(qvec), k),
+        (to_blob(qvec), db_limit),
     ).fetchall()
     out = []
     for r in rows:
@@ -187,6 +188,8 @@ def _search_vec(
                 "project": info["project"],
                 "text": info["text"],
             })
+            if len(out) >= k:
+                break
     return out
 
 
@@ -261,12 +264,17 @@ def search(
     category: str | None = None,
 ) -> list[dict]:
     sym = _symbol_hits(question, project, category)
+    fact_hits = facts.retrieval_hits(question, project)
     qvec = Ollama().embed(question)
     fetch_k = max(k * 4, 24)
     with db.session() as conn:
         has = conn.execute("SELECT COUNT(*) c FROM chunks").fetchone()["c"]
         if not has:
-            return sym[:k]
+            return retrieval_boost.dedupe_by_path(
+                _annotate_hits(fact_hits + sym, question),
+                k,
+                max_per_path=int(config.load_config().get("retrieval_max_per_path", 2)),
+            )
         if db.vec_available():
             vec_hits = _search_vec(conn, qvec, fetch_k, project, category=category)
         else:
@@ -284,15 +292,22 @@ def search(
     expanded = _parent_expand(merged, int(cfg.get("parent_expand_chars", 400)))
     from . import reranker
 
-    ranked = _rerank_hits(expanded, question, max(k * 2, 12))
+    rank_pool = max(k * 3, 18)
+    ranked = _rerank_hits(expanded, question, rank_pool)
     merged_ranked = reranker.rerank_hits(
-        question, ranked, k, enabled=bool(cfg.get("rerank_enabled", True)),
+        question, ranked, rank_pool, enabled=bool(cfg.get("rerank_enabled", True)),
     )
-    if not sym:
-        return merged_ranked
-    seen = {h["path"] for h in sym}
-    rest = [h for h in merged_ranked if h.get("path") not in seen]
-    return (sym + rest)[:k]
+    max_per_path = int(cfg.get("retrieval_max_per_path", 2))
+    merged_ranked = retrieval_boost.dedupe_by_path(
+        merged_ranked, k, max_per_path=max_per_path,
+    )
+    sym_ann = _annotate_hits(sym, question)
+    fact_ann = _annotate_hits(fact_hits, question)
+    return retrieval_boost.dedupe_by_path(
+        fact_ann + sym_ann + merged_ranked,
+        k,
+        max_per_path=max_per_path,
+    )
 
 
 def _parent_expand(hits: list[dict], extra_chars: int) -> list[dict]:
@@ -360,6 +375,9 @@ def prepare_ask(
     similar = chat.find_similar_questions(question, limit=3)
     facts_block = facts.prompt_block(project)
     activity_block = activity_context.prompt_block(question)
+    from . import project_brief
+
+    brief_block = project_brief.ask_context_block(project)
 
     mismatch = _project_context_mismatch(question, hits)
     if mismatch and not web_results and not history:
@@ -398,6 +416,8 @@ def prepare_ask(
     parts = []
     if activity_block:
         parts.append("【近期行为摘要】\n" + activity_block)
+    if brief_block:
+        parts.append("【当前工作项目】\n" + brief_block)
     if facts_block:
         parts.append(facts_block)
     if similar:

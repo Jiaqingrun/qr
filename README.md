@@ -5,9 +5,18 @@
 [ollama](https://ollama.com)（`bge-m3` 做向量，`qwen2.5:72b` 日常问答、`deepseek-r1:70b` 深度推理），
 数据不出本机。
 
+## 功能点
+- [x] 行为采集与时间线（shell / git / file / cursor / notes）
+- [x] 向量检索、Hybrid 问答与符号定位
+- [x] 周期总结、规范对照与沿革
+- [x] Web 控制台（8765）与 launchd 后台任务
+- [x] 工作区治理（migrate / audit / prune）与 MCP
+- [x] 稳定事实、项目 brief 与「接着干」入口
+- [ ] 移动端 / 远程访问（当前刻意不做）
+
 ## 能力
 - **行为采集**：Shell（带 epoch 历史）、Git、文件变更、Cursor 对话、笔记（`qr log` 与 `~/.qr/notes/*.md`）。
-- **语义检索/问答**：对 `~/QR` 工作区建立向量索引，支持按分类/项目筛选，`qr ask` 用本地大模型回答。
+- **语义检索/问答**：对 `~/QR` 工作区建立向量索引，支持按分类/项目筛选，`qr ask` 用本地大模型回答。检索升级路线见 [`docs/RETRIEVAL_UPGRADE_PLAN.md`](docs/RETRIEVAL_UPGRADE_PLAN.md)。
 - **周期性总结**：按天/周/月生成 Markdown 行为总结，并对照个人规范指出偏差。
 - **治理**：个人规范、项目 `.cursor/rules` / `AGENTS.md`、工作区迁移/审计/删除。
 - **自动化**：`launchd` 应用追踪、Cursor 同步、定时 ingest+索引、Web 常驻。
@@ -44,6 +53,7 @@ qr backup --restore PATH  # 从备份恢复（恢复前自动另存当前库）
 qr index-health          # 索引健康检查（失效路径、孤儿文档）
 qr index-health --cleanup  # 清理源文件已消失的索引
 qr changelog dev/qr      # 生成项目变更简报（Git / Cursor / 文件）
+qr project dev/qr        # 项目体检面板（Git / Cursor / 合规）
 qr shell enable           # 启用 zsh 带时间戳历史
 qr permissions setup      # 扩大采集范围并打开系统隐私设置
 qr schedule install       # 安装后台任务（追踪/同步/收录/Web）

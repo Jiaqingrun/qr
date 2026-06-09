@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from . import config, db, timeutil
+from . import config, db, timeutil, workspace
 from . import cursor_prompt_time as cpt
 
 ORIGIN_AUTO = "auto"
@@ -19,6 +19,63 @@ TYPE_ORIGIN_AUTO = "auto"
 TYPE_ORIGIN_MANUAL = "manual"
 
 _DISMISS_PREFIX = "pg_dismiss:"
+_SESSION_DISMISS_PREFIX = "pg_dismiss_session:"
+
+_ARCHIVE_PATH_RE = re.compile(
+    r"(/cursor_chats/|agent-transcripts/|\.cursor/projects/)|^q\d+\.md$",
+    re.I,
+)
+
+
+def _is_archive_path(text: str) -> bool:
+    t = (text or "").strip()
+    if not t:
+        return False
+    if t.endswith(".md") and ("/" in t or t.startswith("q")):
+        return True
+    return bool(_ARCHIVE_PATH_RE.search(t))
+
+
+def _resolve_fragment_query(
+    *,
+    content: str,
+    event_uid: str | None = None,
+    event_title: str | None = None,
+    cursor_session_id: str | None = None,
+    query_index: int | None = None,
+) -> str:
+    """把归档路径还原为真实问话（events.title / 转录 / 归档 md）。"""
+    raw = (content or "").strip()
+    if raw and not _is_archive_path(raw):
+        if "Cursor 对话提问" in raw:
+            parts = raw.split("\n\n", 1)
+            return parts[1].strip() if len(parts) > 1 else raw
+        return raw
+    title = (event_title or "").strip()
+    if title and not _is_archive_path(title):
+        return title
+    sid, qidx = cursor_session_id, query_index
+    parsed = cpt.parse_event_uid(event_uid or "")
+    if parsed:
+        sid, qidx = parsed
+    if sid and qidx is not None:
+        turn = cpt.resolve_cursor_turn(
+            sid,
+            int(qidx),
+            event_uid=event_uid,
+            query_text=title or raw,
+        )
+        q = (turn.get("query") or "").strip()
+        if q and not _is_archive_path(q):
+            return q
+    return title or raw
+
+
+def _fragment_preview(text: str, max_len: int = 100) -> str:
+    line = (text or "").strip().splitlines()[0].strip()
+    if not line or _is_archive_path(line):
+        return ""
+    return line[:max_len]
 
 
 def _dismiss_key(event_uid: str) -> str:
@@ -33,6 +90,34 @@ def _dismiss_events(conn: sqlite3.Connection, event_uids: list[str]) -> None:
     for uid in event_uids:
         if uid:
             db.set_state(conn, _dismiss_key(uid), "1")
+
+
+def _session_dismiss_key(session_id: str) -> str:
+    return f"{_SESSION_DISMISS_PREFIX}{session_id}"
+
+
+def is_session_dismissed(conn: sqlite3.Connection, session_id: str) -> bool:
+    sid = (session_id or "").strip()
+    if not sid or sid == "unknown":
+        return False
+    return bool(db.get_state(conn, _session_dismiss_key(sid)))
+
+
+def _shield_session(conn: sqlite3.Connection, session_id: str) -> None:
+    sid = (session_id or "").strip()
+    if sid and sid != "unknown":
+        db.set_state(conn, _session_dismiss_key(sid), "1")
+
+
+def _shield_event_uids(conn: sqlite3.Connection, event_uids: list[str]) -> int:
+    """屏蔽问话：写入 dismiss，并从时间线/事件中移除（不删 Cursor 原文件）。"""
+    uids = [str(u) for u in event_uids if u]
+    if not uids:
+        return 0
+    _dismiss_events(conn, uids)
+    ph = ",".join("?" * len(uids))
+    cur = conn.execute(f"DELETE FROM events WHERE uid IN ({ph})", uids)
+    return int(cur.rowcount)
 
 DEFAULT_TYPES: list[dict[str, str]] = [
     {"name": "功能开发", "slug": "feature", "description": "实现新功能、加接口、写业务逻辑"},
@@ -195,7 +280,13 @@ def repair_inbox_timestamps(conn: sqlite3.Connection) -> dict[str, int]:
         if not estimated:
             exact += 1
     conn.commit()
-    return {"updated": updated, "exact": exact, "estimated": updated - exact}
+    query_repair = repair_inbox_queries(conn)
+    return {
+        "updated": updated,
+        "exact": exact,
+        "estimated": updated - exact,
+        "query_repair": query_repair,
+    }
 
 
 def seed_types(conn: sqlite3.Connection) -> None:
@@ -296,11 +387,12 @@ def sync_cursor_inbox(conn: sqlite3.Connection) -> dict[str, int]:
         if exists:
             skipped += 1
             continue
-        content = (r["content"] or "").strip()
-        if "Cursor 对话提问" in content:
-            parts = content.split("\n\n", 1)
-            content = parts[1].strip() if len(parts) > 1 else content
-        if not content:
+        content = _resolve_fragment_query(
+            content=(r["content"] or "").strip(),
+            event_uid=uid,
+            event_title=(r["title"] or "").strip(),
+        )
+        if not content or _is_archive_path(content):
             skipped += 1
             continue
         type_id, note, conf = classify_text_conn(conn, content)
@@ -327,7 +419,7 @@ def sync_cursor_inbox(conn: sqlite3.Connection) -> dict[str, int]:
             (
                 uid,
                 content,
-                r["project"],
+                workspace.canonical_project_id(r["project"]) or r["project"],
                 type_id,
                 TYPE_ORIGIN_AUTO,
                 ORIGIN_AUTO,
@@ -343,7 +435,39 @@ def sync_cursor_inbox(conn: sqlite3.Connection) -> dict[str, int]:
         new += 1
     conn.commit()
     repair = repair_inbox_timestamps(conn)
-    return {"new": new, "skipped": skipped, "repair": repair}
+    query_repair = repair_inbox_queries(conn)
+    return {"new": new, "skipped": skipped, "repair": repair, "query_repair": query_repair}
+
+
+def repair_inbox_queries(conn: sqlite3.Connection) -> dict[str, int]:
+    """把碎片 content 中的归档路径回填为真实问话。"""
+    ensure_schema(conn)
+    rows = conn.execute(
+        "SELECT f.id, f.event_uid, f.content, f.cursor_session_id, f.query_index, "
+        "e.title AS event_title FROM prompt_guide_fragments f "
+        "LEFT JOIN events e ON e.uid=f.event_uid",
+    ).fetchall()
+    updated = 0
+    for r in rows:
+        old = (r["content"] or "").strip()
+        if not _is_archive_path(old):
+            continue
+        new = _resolve_fragment_query(
+            content=old,
+            event_uid=r["event_uid"],
+            event_title=r["event_title"],
+            cursor_session_id=r["cursor_session_id"],
+            query_index=r["query_index"],
+        )
+        if not new or _is_archive_path(new) or new == old:
+            continue
+        conn.execute(
+            "UPDATE prompt_guide_fragments SET content=? WHERE id=?",
+            (new, r["id"]),
+        )
+        updated += 1
+    conn.commit()
+    return {"updated": updated}
 
 
 def list_fragments(
@@ -362,11 +486,16 @@ def list_fragments(
         where.append("f.type_id=?")
         params.append(type_id)
     if project:
-        where.append("LOWER(f.project) LIKE ?")
-        params.append(f"%{project.lower()}%")
+        pvals = workspace.project_filter_values(project)
+        if pvals:
+            ph = ",".join("?" * len(pvals))
+            where.append(f"f.project IN ({ph})")
+            params.extend(pvals)
     sql = (
-        "SELECT f.*, t.name AS type_name, t.slug AS type_slug, t.type_origin AS type_table_origin "
+        "SELECT f.*, e.title AS event_title, t.name AS type_name, t.slug AS type_slug, "
+        "t.type_origin AS type_table_origin "
         "FROM prompt_guide_fragments f "
+        "LEFT JOIN events e ON e.uid=f.event_uid "
         "LEFT JOIN prompt_guide_types t ON f.type_id=t.id "
         f"WHERE {' AND '.join(where)} ORDER BY f.ts DESC LIMIT ? OFFSET ?"
     )
@@ -396,11 +525,19 @@ def list_inbox_groups(
         items.sort(key=lambda x: (x.get("query_index") if x.get("query_index") is not None else 9999, x.get("ts") or 0))
         ts_list = [int(x["ts"]) for x in items if x.get("ts")]
         est_n = sum(1 for x in items if x.get("ts_estimated"))
-        first = items[0]["content"].splitlines()[0][:100] if items else sid[:8]
+        title = ""
+        for item in items:
+            preview = _fragment_preview(item.get("content") or "")
+            if preview:
+                title = preview
+                break
+        if not title:
+            title = f"Cursor 对话 · {sid[:8]}"
         groups.append({
             "session_id": sid,
             "project": items[0].get("project") if items else "",
-            "title": first,
+            "project_label": items[0].get("project_label") if items else "",
+            "title": title,
             "fragment_count": len(items),
             "started_ts": min(ts_list) if ts_list else 0,
             "ended_ts": max(ts_list) if ts_list else 0,
@@ -424,6 +561,7 @@ def list_guides(
     *,
     type_id: int | None = None,
     origin: str | None = None,
+    project: str | None = None,
     limit: int = 100,
     offset: int = 0,
 ) -> list[dict]:
@@ -436,6 +574,12 @@ def list_guides(
     if origin:
         where.append("g.origin=?")
         params.append(origin)
+    if project:
+        pvals = workspace.project_filter_values(project)
+        if pvals:
+            ph = ",".join("?" * len(pvals))
+            where.append(f"g.project IN ({ph})")
+            params.extend(pvals)
     sql = (
         "SELECT g.*, t.name AS type_name, t.slug AS type_slug, t.type_origin AS type_table_origin, "
         "(SELECT COUNT(*) FROM prompt_guide_fragments f WHERE f.guide_id=g.id) AS fragment_count "
@@ -459,7 +603,8 @@ def get_guide(conn: sqlite3.Connection, guide_id: int) -> dict | None:
         return None
     g = _enrich_guide(dict(row))
     frags = conn.execute(
-        "SELECT f.*, t.name AS type_name FROM prompt_guide_fragments f "
+        "SELECT f.*, e.title AS event_title, t.name AS type_name FROM prompt_guide_fragments f "
+        "LEFT JOIN events e ON e.uid=f.event_uid "
         "LEFT JOIN prompt_guide_types t ON f.type_id=t.id "
         "WHERE f.guide_id=? ORDER BY f.ts",
         (guide_id,),
@@ -475,14 +620,28 @@ def get_guide(conn: sqlite3.Connection, guide_id: int) -> dict | None:
         )
         fd["cursor_reply"] = turn.get("reply") or ""
         fd["reply_found"] = bool(turn.get("found"))
-        if turn.get("found") and turn.get("query") and not (fd.get("content") or "").strip():
-            fd["content"] = turn["query"]
+        if turn.get("found") and turn.get("query"):
+            if not (fd.get("content") or "").strip() or _is_archive_path(fd.get("content") or ""):
+                fd["content"] = turn["query"]
         enriched.append(fd)
     g["fragments"] = enriched
     return g
 
 
+def _enrich_project_fields(d: dict) -> dict:
+    raw = (d.get("project") or "").strip()
+    if not raw:
+        d["project"] = None
+        d["project_label"] = None
+        return d
+    canon = workspace.canonical_project_id(raw)
+    d["project"] = canon
+    d["project_label"] = workspace.project_timeline_label(raw)
+    return d
+
+
 def _enrich_guide(d: dict) -> dict:
+    _enrich_project_fields(d)
     d["badges"] = _guide_badges(d)
     if d.get("tags") and isinstance(d["tags"], str):
         try:
@@ -498,6 +657,7 @@ def _enrich_guide(d: dict) -> dict:
 
 
 def _enrich_fragment(d: dict) -> dict:
+    _enrich_project_fields(d)
     uid = d.get("event_uid") or ""
     parsed = cpt.parse_event_uid(uid)
     if parsed:
@@ -515,6 +675,16 @@ def _enrich_fragment(d: dict) -> dict:
         else {"label": "精确", "kind": "exact"}
     )
     d["badges"] = _fragment_badges(d)
+    archive = d.get("content") if _is_archive_path(d.get("content") or "") else ""
+    d["content"] = _resolve_fragment_query(
+        content=d.get("content") or "",
+        event_uid=d.get("event_uid"),
+        event_title=d.get("event_title"),
+        cursor_session_id=d.get("cursor_session_id"),
+        query_index=d.get("query_index"),
+    )
+    if archive and not d.get("archive_path"):
+        d["archive_path"] = archive
     return d
 
 
@@ -559,6 +729,8 @@ def merge_fragments(
     type_name: str | None = None,
     project: str | None = None,
     tags: list[str] | None = None,
+    body: str | None = None,
+    refined: bool = False,
 ) -> dict:
     if len(fragment_ids) < 1:
         raise ValueError("请至少选择一条问话片段")
@@ -579,7 +751,9 @@ def merge_fragments(
         event_uids.append(f["event_uid"])
         if f["project"]:
             projects.append(f["project"])
-    body = "\n\n---\n\n".join(bodies)
+    raw_body = "\n\n---\n\n".join(bodies)
+    if body is None:
+        body = raw_body
     if not title:
         first = frags[0]["content"].splitlines()[0][:80]
         title = first if len(frags) == 1 else f"合并引导语 · {first[:40]}…（{len(frags)}段）"
@@ -589,11 +763,13 @@ def merge_fragments(
         type_id = int(frags[0]["type_id"]) if frags[0]["type_id"] else None
     proj = project or (max(set(projects), key=projects.count) if projects else None)
     now = db.now()
-    meta = {
+    meta: dict[str, Any] = {
         "merged_from": fragment_ids,
         "event_uids": event_uids,
         "fragment_count": len(frags),
     }
+    if refined:
+        meta["refined"] = True
     cur = conn.execute(
         "INSERT INTO prompt_guides(title, body, type_id, origin, project, tags, meta, created_at, updated_at) "
         "VALUES(?,?,?,?,?,?,?,?,?)",
@@ -615,6 +791,47 @@ def merge_fragments(
             "UPDATE prompt_guide_fragments SET guide_id=?, fragment_origin=? WHERE id=?",
             (guide_id, ORIGIN_MERGED, fid),
         )
+    conn.commit()
+    _export_guide_markdown(guide_id, title, body, type_id, conn)
+    return get_guide(conn, guide_id) or {"id": guide_id}
+
+
+def update_guide_content(
+    conn: sqlite3.Connection,
+    guide_id: int,
+    *,
+    title: str,
+    body: str,
+    type_id: int | None = None,
+    type_name: str | None = None,
+    tags: list[str] | None = None,
+    refined: bool = False,
+) -> dict:
+    ensure_schema(conn)
+    row = conn.execute("SELECT id FROM prompt_guides WHERE id=?", (guide_id,)).fetchone()
+    if not row:
+        raise ValueError("引导语不存在")
+    if type_name and not type_id:
+        type_id = get_or_create_type(conn, type_name)
+    now = db.now()
+    existing = get_guide(conn, guide_id) or {}
+    meta = dict(existing.get("meta") or {})
+    if refined:
+        meta["refined"] = True
+        meta["refined_at"] = now
+    conn.execute(
+        "UPDATE prompt_guides SET title=?, body=?, type_id=COALESCE(?, type_id), "
+        "tags=?, meta=?, updated_at=? WHERE id=?",
+        (
+            title.strip(),
+            body.strip(),
+            type_id,
+            json.dumps(tags or [], ensure_ascii=False),
+            json.dumps(meta, ensure_ascii=False),
+            now,
+            guide_id,
+        ),
+    )
     conn.commit()
     _export_guide_markdown(guide_id, title, body, type_id, conn)
     return get_guide(conn, guide_id) or {"id": guide_id}
@@ -732,28 +949,21 @@ def _transcript_paths_for_session(base: Path, session_id: str) -> list[Path]:
 
 
 def delete_cursor_sessions(conn: sqlite3.Connection, session_ids: list[str]) -> dict[str, Any]:
-    """删除整段 Cursor 对话：碎片、events、索引文档与本机转录 jsonl；引导语文本保留。"""
+    """从知识库屏蔽整段 Cursor 对话（收件箱+时间线）；保留本机转录与归档文件。"""
     if not session_ids:
         return {
             "sessions": 0,
             "fragments": 0,
             "events": 0,
-            "transcripts": 0,
-            "documents": 0,
-            "errors": [],
+            "shielded": True,
         }
     ensure_schema(conn)
-    cfg = config.load_config()
-    base = Path(cfg["cursor_projects_dir"]).expanduser()
-    cpt.clear_transcript_cache()
 
     stats: dict[str, Any] = {
         "sessions": 0,
         "fragments": 0,
         "events": 0,
-        "transcripts": 0,
-        "documents": 0,
-        "errors": [],
+        "shielded": True,
     }
     seen: set[str] = set()
     for sid in session_ids:
@@ -762,6 +972,7 @@ def delete_cursor_sessions(conn: sqlite3.Connection, session_ids: list[str]) -> 
             continue
         seen.add(sid)
         stats["sessions"] += 1
+        _shield_session(conn, sid)
 
         frags = conn.execute(
             "SELECT event_uid FROM prompt_guide_fragments WHERE cursor_session_id=?",
@@ -785,22 +996,7 @@ def delete_cursor_sessions(conn: sqlite3.Connection, session_ids: list[str]) -> 
             uid = str(r["uid"])
             if uid not in dismiss_uids:
                 dismiss_uids.append(uid)
-        cur = conn.execute(
-            "DELETE FROM events WHERE source='cursor' AND (uid LIKE ? OR uid=?)",
-            (f"cursor:{sid}:q%", f"cursor:{sid}"),
-        )
-        stats["events"] += cur.rowcount
-        _dismiss_events(conn, dismiss_uids)
-        conn.execute("DELETE FROM state WHERE key=?", (f"cursor_sig:{sid}",))
-
-        for jsonl in _transcript_paths_for_session(base, sid):
-            if _purge_document_path(conn, jsonl):
-                stats["documents"] += 1
-            try:
-                jsonl.unlink(missing_ok=True)
-                stats["transcripts"] += 1
-            except OSError as exc:
-                stats["errors"].append(f"{jsonl}: {exc}")
+        stats["events"] += _shield_event_uids(conn, dismiss_uids)
 
     conn.commit()
     cpt.clear_transcript_cache()
@@ -808,9 +1004,9 @@ def delete_cursor_sessions(conn: sqlite3.Connection, session_ids: list[str]) -> 
 
 
 def delete_fragments(conn: sqlite3.Connection, fragment_ids: list[int]) -> dict[str, int]:
-    """删除收件箱碎片；已合并的不可删。写入 dismiss 避免同步再次拉回。"""
+    """屏蔽收件箱问话片段；已合并的不可删。保留 Cursor 原文件，后续同步不再显示。"""
     if not fragment_ids:
-        return {"deleted": 0, "skipped": 0}
+        return {"deleted": 0, "skipped": 0, "events": 0}
     ensure_schema(conn)
     placeholders = ",".join("?" * len(fragment_ids))
     rows = conn.execute(
@@ -828,6 +1024,7 @@ def delete_fragments(conn: sqlite3.Connection, fragment_ids: list[int]) -> dict[
         to_delete.append(int(row["id"]))
         if row["event_uid"]:
             dismiss_uids.append(str(row["event_uid"]))
+    events_removed = 0
     if to_delete:
         ph2 = ",".join("?" * len(to_delete))
         conn.execute(
@@ -835,9 +1032,9 @@ def delete_fragments(conn: sqlite3.Connection, fragment_ids: list[int]) -> dict[
             to_delete,
         )
         deleted = len(to_delete)
-    _dismiss_events(conn, dismiss_uids)
+        events_removed = _shield_event_uids(conn, dismiss_uids)
     conn.commit()
-    return {"deleted": deleted, "skipped": skipped}
+    return {"deleted": deleted, "skipped": skipped, "events": events_removed}
 
 
 def delete_guide(conn: sqlite3.Connection, guide_id: int) -> None:

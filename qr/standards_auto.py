@@ -128,10 +128,11 @@ def run_scheduled(
     if do_global:
         try:
             _LOG.info("revise global period=%s from_conversations", period)
-            content, saved = governance.revise_from_conversations(period)
+            content, saved, changed = governance.revise_from_conversations(period)
             result["global"] = {
                 "ok": True,
                 "version_saved": saved,
+                "content_changed": changed,
                 "chars": len(content),
             }
             _LOG.info("global ok saved=%s len=%s", saved, len(content))

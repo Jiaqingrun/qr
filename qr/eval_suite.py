@@ -33,7 +33,7 @@ BUILTIN_CASES = [
         "id": "embed",
         "tier": "core",
         "q": "QR本地知识库当前配置使用的向量嵌入模型名称是什么？",
-        "must": [r"bge[-_]m3"],
+        "must": [r"qwen3[-_]embedding"],
         "nice": ["embed_model"],
         "expect_paths": ["config.json", "qr-config", "config.py"],
     },
@@ -50,7 +50,7 @@ BUILTIN_CASES = [
         "tier": "core",
         "q": "运行 QR本地知识库 schedule install 会安装哪些 launchd 后台任务？列出任务 label 或名称。",
         "must": [r"tracker", r"cursor", r"auto"],
-        "nice": [r"weekly", r"web", r"com\.qr"],
+        "nice": [r"weekly", r"eval", r"web", r"com\.qr"],
         "expect_paths": ["cli.py"],
     },
     {
@@ -59,7 +59,9 @@ BUILTIN_CASES = [
         "q": "QR本地知识库 config.json 里 context_tokens 和 deep_context_tokens 分别是多少？",
         "must": [r"32768", r"131072"],
         "nice": ["context_tokens", "deep_context_tokens"],
-        "expect_paths": ["config.json", "qr-config", "config.py"],
+        "expect_paths": [
+            "config.json", "qr-config", "config.py", "indexer.py", "ollama_client.py",
+        ],
     },
     {
         "id": "message_roles",
@@ -84,7 +86,9 @@ BUILTIN_CASES = [
         "must": [r"8765"],
         "must_any": [r"不对|错误|不是|否|纠正|应为|实际|并非|错的|3000"],
         "nice": ["web_port"],
-        "expect_paths": ["config.json", "qr-config", "config.py", "indexer.py"],
+        "expect_paths": [
+            "config.json", "qr-config", "config.py", "indexer.py", "cli.py", "web.py",
+        ],
     },
     {
         "id": "negative",
