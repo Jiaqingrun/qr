@@ -1,4 +1,5 @@
 import unittest
+import uuid
 
 from qr import prompt_guides
 
@@ -31,7 +32,7 @@ class PromptGuideQueryTests(unittest.TestCase):
 
         db.init_db()
         with db.session() as conn:
-            uid = "cursor:test-session:q0"
+            uid = f"cursor:test-session-{uuid.uuid4().hex[:8]}:q0"
             conn.execute(
                 "INSERT INTO events(uid,ts,source,project,title,content,meta) "
                 "VALUES(?, ?, 'cursor', 'qr', 'hello', 'body', '{}')",
@@ -49,7 +50,7 @@ class PromptGuideQueryTests(unittest.TestCase):
 
         db.init_db()
         with db.session() as conn:
-            uid = "cursor:shield-test-uuid:q0"
+            uid = f"cursor:shield-test-{uuid.uuid4().hex[:8]}:q0"
             prompt_guides._dismiss_events(conn, [uid])
             conn.execute(
                 "INSERT INTO events(uid,ts,source,project,title,content,meta) "

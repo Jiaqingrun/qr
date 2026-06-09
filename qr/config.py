@@ -112,6 +112,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "alert_rag_eval_drop_pct": 10,
     "eval_monthly_day": 1,
     "eval_monthly_hour": 3,
+    "retrieval_relation_expand": True,
+    "retrieval_relation_max_projects": 2,
+    "retrieval_relation_link_types": ["depends", "supports", "related", "co_dev"],
+    "retrieval_relation_discount": 0.85,
     "index_incremental_after_ingest": True,
 }
 

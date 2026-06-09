@@ -263,6 +263,54 @@ def search(
     project: str | None = None,
     category: str | None = None,
 ) -> list[dict]:
+    from . import retrieval_relations
+
+    cfg = config.load_config()
+    cross = None
+    if not project and cfg.get("retrieval_relation_expand", True):
+        cross = retrieval_relations.resolve_cross_project(question, cfg=cfg)
+        if cross:
+            project = cross["primary"]
+
+    primary = _search_core(question, k, project, category)
+    if not cfg.get("retrieval_relation_expand", True):
+        return primary
+
+    related: list[str] = []
+    if cross:
+        related = list(cross.get("related") or [])
+    elif project:
+        related = retrieval_relations.expand_projects(project, cfg=cfg)
+
+    if not related:
+        return primary
+
+    discount = retrieval_relations.relation_discount(cfg)
+    rel_k = max(2, k // 2)
+    from . import workspace
+
+    anchor = workspace.normalize_project_id(project) if project else ""
+    extra: list[dict] = []
+    for rp in related:
+        for h in _search_core(question, rel_k, rp, category=None):
+            extra.append(
+                retrieval_relations.tag_related_hit(
+                    h, anchor=anchor, related=rp, discount=discount,
+                )
+            )
+    max_per_path = int(cfg.get("retrieval_max_per_path", 2))
+    merged = retrieval_boost.dedupe_by_path(
+        primary + extra, k, max_per_path=max_per_path,
+    )
+    return merged
+
+
+def _search_core(
+    question: str,
+    k: int = 6,
+    project: str | None = None,
+    category: str | None = None,
+) -> list[dict]:
     sym = _symbol_hits(question, project, category)
     fact_hits = facts.retrieval_hits(question, project)
     qvec = Ollama().embed(question)
@@ -418,6 +466,11 @@ def prepare_ask(
         parts.append("【近期行为摘要】\n" + activity_block)
     if brief_block:
         parts.append("【当前工作项目】\n" + brief_block)
+    from . import retrieval_relations
+
+    rel_block = retrieval_relations.context_block(hits)
+    if rel_block:
+        parts.append(rel_block)
     if facts_block:
         parts.append(facts_block)
     if similar:

@@ -89,6 +89,27 @@ def _active_workspace_projects(
     return out
 
 
+def _merge_project_targets(
+    conn,
+    start: int,
+    end: int,
+    *,
+    limit: int,
+) -> list[str]:
+    """Cursor 活跃 + 引导语合并项目，去重合并。"""
+    from . import prompt_guides
+
+    cursor_active = _active_workspace_projects(conn, start, end, limit=limit)
+    guide_active = prompt_guides.recent_guide_projects(conn, start, end, limit=limit)
+    out: list[str] = []
+    for pid in [*guide_active, *cursor_active]:
+        if pid not in out:
+            out.append(pid)
+        if len(out) >= limit:
+            break
+    return out
+
+
 def run_scheduled(
     period: str = "week",
     *,
@@ -117,6 +138,16 @@ def run_scheduled(
     from . import summary
 
     start, end = summary._window(period)
+    try:
+        from . import project_relations
+
+        inf = project_relations.infer_and_store(days=30)
+        result["relations_inferred"] = inf
+        _LOG.info("project_relations infer: %s", inf)
+    except Exception as e:
+        result["errors"].append(f"relations: {e}")
+        _LOG.warning("project_relations infer failed: %s", e)
+
     do_global = not projects_only and cfg.get("standards_auto_global", True)
     do_projects = not global_only and cfg.get("standards_auto_projects", True)
     max_proj = max(0, int(cfg.get("standards_auto_max_projects", 2)))
@@ -143,7 +174,7 @@ def run_scheduled(
 
     if do_projects and max_proj > 0:
         with db.session() as conn:
-            targets = _active_workspace_projects(conn, start, end, limit=max_proj)
+            targets = _merge_project_targets(conn, start, end, limit=max_proj)
         for pid in targets:
             proj_dir = workspace.resolve_project_dir(pid)
             if not proj_dir:

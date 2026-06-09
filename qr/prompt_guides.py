@@ -1047,6 +1047,26 @@ def delete_guide(conn: sqlite3.Connection, guide_id: int) -> None:
     conn.commit()
 
 
+def recent_guide_projects(conn, start: int, end: int, *, limit: int = 4) -> list[str]:
+    """近期合并/更新的引导语所属项目（用于规范修订优先级）。"""
+    ensure_schema(conn)
+    rows = conn.execute(
+        "SELECT project, MAX(updated_at) u FROM prompt_guides "
+        "WHERE project IS NOT NULL AND trim(project)!='' "
+        "AND updated_at>=? AND updated_at<=? "
+        "GROUP BY project ORDER BY u DESC LIMIT ?",
+        (start, end, limit * 2),
+    ).fetchall()
+    out: list[str] = []
+    for r in rows:
+        pid = workspace.normalize_project_id(str(r["project"] or ""))
+        if pid and workspace.is_listable_project_id(pid) and pid not in out:
+            out.append(pid)
+        if len(out) >= limit:
+            break
+    return out
+
+
 def stats(conn: sqlite3.Connection) -> dict:
     ensure_schema(conn)
     inbox = conn.execute(
