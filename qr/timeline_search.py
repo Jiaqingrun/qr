@@ -6,6 +6,7 @@ import sqlite3
 from typing import Any
 
 from . import db, workspace
+from .collectors import notes
 
 _TAG_RE = re.compile(r"<[^>]+>")
 
@@ -119,6 +120,8 @@ def search(
         if not workspace.event_row_visible(row["source"], row["project"]):
             continue
         if workspace.event_timeline_hidden(row["source"], row["title"], row["meta"]):
+            continue
+        if row["source"] == "note" and not notes.is_manual_timeline_note(row["uid"], row["meta"]):
             continue
         out.append({
             "uid": row["uid"],

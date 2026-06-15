@@ -67,12 +67,12 @@ qr query "database locked" -k 8                   # 只检索、不生成
 **推荐操作**  
 ```bash
 qr log "选用 SQLite 因单机部署" --type decision
-# 或写入 ~/.qr/notes/*.md，再 qr ingest
 ```
 
 **细节**  
 - 决策模板含：问题 / 选项 / 结论 / 原因  
-- 笔记会参与 `qr summary` 与 RAG  
+- **时间线 note** 仅 `qr log` 手动写入；`~/.qr/notes/*.md` 不再同步进时间线  
+- 笔记内容仍可用于 `qr summary` 与 RAG（若已纳入索引）  
 - 完整 **引导语** 导出在 `~/.qr/prompts/<类型>/`（见下）  
 
 ---

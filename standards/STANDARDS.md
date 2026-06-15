@@ -57,6 +57,23 @@
 - 每周查看 `qr summary --period week` 的总结，对照本规范修正习惯。
 - 阶段性把散落项目迁入 `~/QR` 或归档：`qr workspace migrate` / `qr workspace prune`。
 
+### AI 使用水平评测（规则摘要）
+- **原则**：以 `~/.qr/qr.db` 行为证据为主（Cursor 归档、屏幕采样、eval、facts），辅以多框架对照；完整量表见 **`~/QR/dev/qr/docs/AI_SKILL_ASSESSMENT.md`**。
+- **主量表**：**QR 六维**（提示工程、工具链、元认知、复盘习惯、多项目协作、领域应用），各 1–10 分；综合分 = 六维均值。**档位**：7.6–8.5 为 L4+，8.6+ 逼近 L5。
+- **对照框架**（重大评测时）：AISA 五维（0–100）、个人 L1–L6、AILit 四域、Prompt 认证（Foundation→Lead）、PRL 提示就绪度。
+- **硬指标**：近月 Cursor 时长与切入、按项目对话分布、决策笔记数、引导语/片段、RAG 基线（`qr eval rag`：命中率/泄漏/均耗时）、规范版本与 facts。
+- **节奏**：
+  - **每日**：`qr ai-assess --save` → `~/.qr/assessments/`；洞察页勾选「每日 AI 水平评测」。
+  - **每月**：`qr eval monthly --save` → `~/.qr/eval_monthly/`；对照 `docs/RETRIEVAL_UPGRADE_PLAN.md` 触发条件。
+  - **按需**：对话级完整评测（六维 + 多框架 + 90 天行动项）；里程碑可导出 Word/PDF 归档。
+- **里程碑**：每个主项目阶段结束至少 **1 条** `qr log --type decision`；避免「对话上千、决策个位数」。
+
+### 进化计划自动同步
+- 跟踪文档：`~/QR/dev/qr/docs/EVOLUTION_PLAN.md`（产品向优先级与验收）。
+- **自动**：`qr update` 结束时若 `evolution_auto_sync=true`（默认），按规则检测并更新状态（仅 **进行中→已完成**）。
+- **手动**：`qr evolution sync`（快检）· `qr evolution sync --full`（含 RAG 9/9）· `qr evolution status`。
+- 状态缓存：`~/.qr/evolution_plan_state.json`。
+
 ## 六、界面与视觉规范（全局）
 - **QR 知识库 Web**（`http://127.0.0.1:8765`）与各业务项目前台，在信息架构上保持一致：侧栏导航、卡片分区、时间线列表（首行标题 + 可点击路径）、标签色与来源色区分。
 - **QR Web 布局（2026-06）**：主内容区**全宽自适应**；每标签页 `view--fill` 纵向填满；`page-ops` + `page-body`，间距 16px、外边距 20px；列表+详情用 `split-shell`。细则见 `docs/WEB_UI_LAYOUT.md`。

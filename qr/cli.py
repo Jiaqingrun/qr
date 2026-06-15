@@ -1444,6 +1444,22 @@ def update(
                     console.print(f"[dim]日志: {config.LOGS_DIR / 'standards-auto.log'}[/]")
     except OllamaError as e:
         console.print(f"[yellow]![/] {e}")
+    if cfg.get("evolution_auto_sync", True):
+        from . import evolution_plan
+
+        quick = summary_period != "week"
+        try:
+            evo = evolution_plan.sync(quick=quick, dry_run=False)
+            if evo.get("changed"):
+                if evo.get("promoted"):
+                    console.print(
+                        f"[green]✓[/] 进化计划已更新："
+                        + "、".join(evo["promoted"])
+                    )
+                else:
+                    console.print("[dim]进化计划已同步[/]")
+        except Exception as e:
+            console.print(f"[yellow]![/] 进化计划同步: {e}")
 
 
 @app.command(name="standards-auto")
@@ -1709,6 +1725,60 @@ def mcp_cmd():
     """启动 MCP stdio 服务（供 Cursor 调用 QR本地知识库检索/问答）。"""
     from . import mcp_server
     mcp_server.main()
+
+
+evolution_app = typer.Typer(help="进化计划验收与 docs/EVOLUTION_PLAN.md 同步")
+app.add_typer(evolution_app, name="evolution")
+
+
+@evolution_app.command("sync")
+def evolution_sync_cmd(
+    full: bool = typer.Option(False, "--full", help="含全量 RAG 基线验收（较慢）"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="只检测不写文件"),
+):
+    """按验收规则检测并更新 docs/EVOLUTION_PLAN.md。"""
+    from . import evolution_plan
+
+    db.init_db()
+    with console.status("进化计划验收…"):
+        res = evolution_plan.sync(quick=not full, dry_run=dry_run)
+    for row in res.get("items") or []:
+        mark = "✓" if row.get("passed") else "○"
+        console.print(
+            f"  {mark} #{row['num']} {row['title']}: {row['status_label']} — {row.get('detail', '')}"
+        )
+    if dry_run:
+        console.print("[dim]dry-run：未写入文件[/]")
+    elif res.get("promoted"):
+        console.print(f"[green]✓[/] 新完成：{', '.join(res['promoted'])}")
+    elif res.get("changed"):
+        console.print(f"[green]✓[/] 已更新 {res.get('path')}")
+    else:
+        console.print("[dim]无变更[/]")
+
+
+@evolution_app.command("status")
+def evolution_status_cmd(
+    full: bool = typer.Option(False, "--full", help="含全量 RAG 基线"),
+):
+    """查看进化计划验收状态（不写文件）。"""
+    from . import evolution_plan
+
+    db.init_db()
+    rows = evolution_plan.evaluate(quick=not full)
+    t = Table(title="进化计划验收")
+    t.add_column("#")
+    t.add_column("方向")
+    t.add_column("状态")
+    t.add_column("检测")
+    for r in rows:
+        t.add_row(
+            str(r["num"]),
+            r["title"],
+            r["status_label"],
+            r.get("detail", "")[:60],
+        )
+    console.print(t)
 
 
 @app.command("ai-assess")

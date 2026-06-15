@@ -362,6 +362,8 @@ def events(
                 ).fetchone()
                 if not row:
                     continue
+                if row["source"] == "note" and not notes.is_manual_timeline_note(row["uid"], row["meta"]):
+                    continue
                 tlabel = timeutil.format_local(row["ts"])
                 item = {
                     "uid": row["uid"],
@@ -461,6 +463,8 @@ def events(
             if not workspace.event_row_visible(r["source"], r["project"]):
                 continue
             if workspace.event_timeline_hidden(r["source"], r["title"], r["meta"]):
+                continue
+            if r["source"] == "note" and not notes.is_manual_timeline_note(r["uid"], r["meta"]):
                 continue
             ts_estimated = False
             has_reply = False

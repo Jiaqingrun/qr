@@ -62,26 +62,28 @@
 
 ## 10. 文档与规则同步（知识库改动后）
 
-- [ ] 新 CLI / API / MCP / Web 能力已写入 `README.md` 与 `docs/USE_CASES.md`
-- [ ] 必要时更新 `PROJECT.md`、`.cursor/rules/10-project.mdc`
-- [ ] 已移除未使用代码（死函数、冗余导入）
-- [ ] **许可声明**（若本次改动涉及依赖 / 默认模型 / 联网 API / 前端第三方库 / 打包方式 / 协议变更）：
-  - [ ] `LICENSE` 与 `pyproject.toml` · `license` 仍正确
-  - [ ] `THIRD_PARTY_NOTICES.md` 已更新（含文首日期）
-  - [ ] `README.md` ·「许可与外部组件」与再分发清单仍准确
-- [ ] **规范分层**（全局 `standards.md` 与项目 `PROJECT.md` **绝对不混写**）：
-  - [ ] 全局未写入具体业务项目技术栈/领域规则
-  - [ ] 各项目 `PROJECT.md` 未复制「## 一、」～「## 六、」等全局章节
-  - [ ] `qr doctor` / `qr compliance` 无「混入全局规范」告警
+- [x] 新 CLI / API / MCP / Web 能力已写入 `README.md` 与 `docs/USE_CASES.md`
+- [x] 必要时更新 `PROJECT.md`、`.cursor/rules/10-project.mdc`
+- [x] 已移除未使用代码（死函数、冗余导入）
+- [x] **许可声明**（若本次改动涉及依赖 / 默认模型 / 联网 API / 前端第三方库 / 打包方式 / 协议变更）：
+  - [x] `LICENSE` 与 `pyproject.toml` · `license` 仍正确
+  - [x] `THIRD_PARTY_NOTICES.md` 已更新（含文首日期）
+  - [x] `README.md` ·「许可与外部组件」与再分发清单仍准确
+- [x] **规范分层**（全局 `standards.md` 与项目 `PROJECT.md` **绝对不混写**）：
+  - [x] 全局未写入具体业务项目技术栈/领域规则
+  - [x] 各项目 `PROJECT.md` 未复制「## 一、」～「## 六、」等全局章节
+  - [x] `qr doctor` / `qr compliance` 无「混入全局规范」告警
 
 ---
 
 ## 第二轮自检记录
 
-| 日期 | 执行人 | 结果 | 备注 |
-|------|--------|------|------|
-| 2026-06-01 | Agent | 代码侧通过 | compileall + 4 unittest；UI/在线 API 需本机 `qr web` 强刷验证 |
-| 2026-06-07 | Agent | **全项通过** | 见下「第三轮自检记录」 |
+
+| 日期         | 执行人   | 结果       | 备注                                                  |
+| ---------- | ----- | -------- | --------------------------------------------------- |
+| 2026-06-01 | Agent | 代码侧通过    | compileall + 4 unittest；UI/在线 API 需本机 `qr web` 强刷验证 |
+| 2026-06-07 | Agent | **全项通过** | 见下「第三轮自检记录」                                         |
+
 
 **本轮自动化（维护者填写）：**
 
@@ -91,21 +93,24 @@
 
 ## 第三轮自检记录（2026-06-07）
 
-| 类别 | 验证方式 | 结果 |
-|------|----------|------|
-| 构建 | `compileall` + 17 unittest | 通过 |
-| 备份 | `qr backup` → `~/.qr/backups/qr-20260607-153821.db` | 通过 |
-| Web | `qr web --restart`、HTTP 200、`/api/status` 169ms | 通过 |
-| 沿革 | GET 不增 DB 体积；`version_index` 均 ≥2；POST prune 正常 | 通过（修复 `prune_noise_versions` 缺 import） |
-| 关系 | POST/DELETE link 往返；图数据 nodes/edges | 通过 |
-| 时间线 | `sort=time` 降序；qr 源与 cursor/shell 等可区分 | 通过 |
-| 性能 | `/api/projects` <3s | 通过 |
-| 前端 | `node --check` 内联脚本无语法错误；11 视图 + 侧栏系统状态 | 通过 |
-| 评测 | RAG 检索抽样 3/3（`eval_suite.load_cases` 前 3 题） | 通过 |
-| 流式问答 | Web SSE + CLI `qr ask` 流式（近期改动） | 通过 |
+
+| 类别   | 验证方式                                                | 结果                                     |
+| ---- | --------------------------------------------------- | -------------------------------------- |
+| 构建   | `compileall` + 17 unittest                          | 通过                                     |
+| 备份   | `qr backup` → `~/.qr/backups/qr-20260607-153821.db` | 通过                                     |
+| Web  | `qr web --restart`、HTTP 200、`/api/status` 169ms     | 通过                                     |
+| 沿革   | GET 不增 DB 体积；`version_index` 均 ≥2；POST prune 正常     | 通过（修复 `prune_noise_versions` 缺 import） |
+| 关系   | POST/DELETE link 往返；图数据 nodes/edges                 | 通过                                     |
+| 时间线  | `sort=time` 降序；qr 源与 cursor/shell 等可区分              | 通过                                     |
+| 性能   | `/api/projects` <3s                                 | 通过                                     |
+| 前端   | `node --check` 内联脚本无语法错误；11 视图 + 侧栏系统状态             | 通过                                     |
+| 评测   | RAG 检索抽样 3/3（`eval_suite.load_cases` 前 3 题）         | 通过                                     |
+| 流式问答 | Web SSE + CLI `qr ask` 流式（近期改动）                     | 通过                                     |
+
 
 **说明：**
 
 - 清单中「总览」= 侧栏四块系统状态（`loadStats`）；「设置」= 时间线页采集/索引/备份运维区 + 侧栏健康摘要。
 - macOS 通知项：`qrRunEnd` → `/api/notify` 代码路径已核对；是否弹窗取决于系统通知授权。
 - 规范长任务切换页：`qrRun` 任务表跨视图保留，顶栏 ticker 显示进行中标签。
+

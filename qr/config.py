@@ -100,6 +100,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "standards_auto_global": True,
     "standards_auto_projects": True,
     "standards_auto_max_projects": 2,
+    "evolution_auto_sync": True,
+    "evolution_sports_cursor_min": 5,
     "backup_keep_count": 10,
     "parent_expand_chars": 400,
     "code_aware_chunking": True,

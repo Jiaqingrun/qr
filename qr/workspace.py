@@ -318,8 +318,10 @@ def _events_timeline_hidden_match_sql() -> str:
 
 
 def events_timeline_hidden_sql() -> str:
-    """SQL 片段：排除后台 Cursor 采集等不入时间线的 qr 操作。"""
-    return f"NOT ({_events_timeline_hidden_match_sql()})"
+    """SQL 片段：排除后台 Cursor 采集等不入时间线的 qr 操作；note 仅保留手动记录。"""
+    from .collectors import notes
+
+    return f"NOT ({_events_timeline_hidden_match_sql()}) AND {notes.manual_note_timeline_sql()}"
 
 
 def purge_timeline_hidden_qr_events(conn) -> int:

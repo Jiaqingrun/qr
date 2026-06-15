@@ -9,11 +9,10 @@ from pathlib import Path
 from .. import config, db
 
 NOTES_DIR = config.QR_HOME / "notes"
-_FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*", re.DOTALL)
-_FM_DATE_RE = re.compile(
-    r"^(?:date|created|time)\s*:\s*(\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?)\s*$",
-    re.IGNORECASE | re.MULTILINE,
-)
+
+
+def _prompts_dir() -> Path:
+    return Path(config.load_config().get("prompt_guides_dir", str(config.QR_HOME / "prompts"))).expanduser()
 
 
 def _note_title(text: str, *, kind: str) -> str:
@@ -40,7 +39,7 @@ def is_cursor_echo(conn: sqlite3.Connection, text: str) -> bool:
 def purge_cursor_duplicate_notes(conn: sqlite3.Connection) -> int:
     """
     清理误标为 note 的 Cursor 问话镜像（历史同步/误点「记录」等）。
-    保留 kind=file（~/.qr/notes）与 decision。
+    保留 kind=decision 的手动决策记录。
     """
     rows = conn.execute(
         "SELECT uid, title, content, meta FROM events WHERE source='note'",
@@ -109,31 +108,6 @@ def add_note(
     )
 
 
-def _file_uid(path: Path) -> str:
-    rel = str(path.resolve())
-    h = hashlib.sha1(rel.encode("utf-8", "replace")).hexdigest()[:16]
-    return f"note:file:{h}"
-
-
-def _parse_frontmatter_ts(raw: str) -> int | None:
-    m = _FRONTMATTER_RE.match(raw)
-    if not m:
-        return None
-    dm = _FM_DATE_RE.search(m.group(1))
-    if not dm:
-        return None
-    s = dm.group(1).strip().replace("T", " ")
-    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
-        try:
-            import datetime
-
-            dt = datetime.datetime.strptime(s, fmt)
-            return int(dt.timestamp())
-        except ValueError:
-            continue
-    return None
-
-
 def purge_misclassified_note_events(conn: sqlite3.Connection) -> int:
     """
     移除误写入时间线的「引导语导出」等记录（曾为 note 来源）。
@@ -159,47 +133,51 @@ def purge_misclassified_note_events(conn: sqlite3.Connection) -> int:
     return len(drop)
 
 
-def _sync_file(conn: sqlite3.Connection, path: Path) -> bool:
-    try:
-        raw = path.read_text(encoding="utf-8", errors="replace").strip()
-        st = path.stat()
-    except OSError:
+def is_manual_timeline_note(uid: str | None, meta: str | None) -> bool:
+    """时间线 note 仅展示 qr log / Web 手动记录（kind=note|decision）。"""
+    u = (uid or "").strip()
+    if u.startswith("note:note:") or u.startswith("note:decision:"):
+        return True
+    if u.startswith("note:file:"):
         return False
-    if not raw:
-        return False
-    if not path.resolve().is_relative_to(NOTES_DIR.resolve()):
-        return False
+    if meta:
+        try:
+            kind = str(json.loads(meta).get("kind") or "")
+            if kind in ("note", "decision"):
+                return True
+            if kind == "file":
+                return False
+        except json.JSONDecodeError:
+            pass
+    return False
 
-    uid = _file_uid(path)
-    row = conn.execute(
-        "SELECT ts, content FROM events WHERE uid=?", (uid,),
-    ).fetchone()
-    if row:
-        ts = int(row["ts"])
-    else:
-        ts = _parse_frontmatter_ts(raw) or int(st.st_mtime)
 
-    title = raw.splitlines()[0][:120] if raw else path.stem
-    if title.startswith("#"):
-        title = title.lstrip("#").strip()[:120]
-    meta = json.dumps(
-        {"kind": "file", "path": str(path), "mtime": int(st.st_mtime)},
-        ensure_ascii=False,
+def manual_note_timeline_sql() -> str:
+    """SQL：保留非 note 来源，或手动 note/decision。"""
+    return (
+        "(source != 'note' OR uid GLOB 'note:note:*' OR uid GLOB 'note:decision:*' "
+        "OR json_extract(meta, '$.kind') IN ('note', 'decision'))"
     )
-    db.upsert_event(
-        conn,
-        uid=uid,
-        ts=ts,
-        source="note",
-        title=title,
-        content=raw,
-        meta=meta,
-    )
-    return True
 
 
-def _prompts_dir() -> Path:
-    return Path(config.load_config().get("prompt_guides_dir", str(config.QR_HOME / "prompts"))).expanduser()
+def purge_non_manual_note_events(conn: sqlite3.Connection) -> int:
+    """移除 ~/.qr/notes 文件同步等非手动 note 时间线条目。"""
+    from .. import timeline_search
+
+    rows = conn.execute(
+        "SELECT uid, meta FROM events WHERE source='note'",
+    ).fetchall()
+    drop = [
+        r["uid"] for r in rows
+        if not is_manual_timeline_note(r["uid"], r["meta"])
+    ]
+    if not drop:
+        return 0
+    ph = ",".join("?" * len(drop))
+    conn.execute(f"DELETE FROM events WHERE uid IN ({ph})", drop)
+    for uid in drop:
+        timeline_search.remove_event(conn, uid)
+    return len(drop)
 
 
 def collect(
@@ -209,19 +187,7 @@ def collect(
     since_ts: int | None = None,
     roots=None,
 ) -> int:
-    """仅同步 ~/.qr/notes/*.md 到时间线（不含 ~/.qr/prompts 引导语导出）。"""
+    """清理误写入时间线的 note；不再把 ~/.qr/notes 文件同步进时间线。"""
     purge_misclassified_note_events(conn)
     purge_cursor_duplicate_notes(conn)
-    NOTES_DIR.mkdir(parents=True, exist_ok=True)
-    paths: list[Path] = sorted(NOTES_DIR.glob("*.md"))
-    n = 0
-    for path in paths:
-        try:
-            mt = int(path.stat().st_mtime)
-        except OSError:
-            continue
-        if since_ts and mt < since_ts:
-            continue
-        if _sync_file(conn, path):
-            n += 1
-    return n
+    return purge_non_manual_note_events(conn)

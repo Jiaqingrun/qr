@@ -24,7 +24,7 @@
 - [ ] 移动端 / 远程访问（当前刻意不做）
 
 ## 能力
-- **行为采集**：Shell（带 epoch 历史）、Git、文件变更、Cursor 对话、笔记（`qr log` 与 `~/.qr/notes/*.md`）。
+- **行为采集**：Shell（带 epoch 历史）、Git、文件变更、Cursor 对话；**时间线 note** 仅 `qr log` 手动记录（`~/.qr/notes/*.md` 不再写入时间线）。
 - **语义检索/问答**：对 `~/QR` 工作区建立向量索引，支持按分类/项目筛选，`qr ask` 用本地大模型回答。检索升级路线见 [`docs/RETRIEVAL_UPGRADE_PLAN.md`](docs/RETRIEVAL_UPGRADE_PLAN.md)。
 - **周期性总结**：按天/周/月生成 Markdown 行为总结，并对照个人规范指出偏差。
 - **治理**：个人规范、项目 `.cursor/rules` / `AGENTS.md`、工作区迁移/审计/删除。
