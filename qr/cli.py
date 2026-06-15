@@ -867,7 +867,7 @@ def cursor_retag_cmd(
     dry_run: bool = typer.Option(False, "--dry-run", help="仅预览，不写库"),
     sports: bool = typer.Option(
         True, "--sports/--all",
-        help="默认仅归位体育相关问话到 dev/project-sports",
+        help="默认仅归位体育相关问话到 dev/sports/project-sports",
     ),
     sessions: str = typer.Option(
         "",
@@ -875,7 +875,7 @@ def cursor_retag_cmd(
         help="整段迁移会话 UUID（逗号分隔）；传 sports-pack 迁移三条体育主会话",
     ),
     project: str = typer.Option(
-        "dev/project-sports", "--project", help="--sessions 的目标项目 ID",
+        "dev/sports/project-sports", "--project", help="--sessions 的目标项目 ID",
     ),
 ):
     """按问话内容或整段会话修正 Cursor 事件的 project 归属。"""
@@ -915,7 +915,7 @@ def cursor_retag_cmd(
     with db.session() as conn:
         if dry_run:
             prev = cursor_retag.preview_sports_retag(conn)
-            console.print(f"[dim]→ dev/project-sports：{len(prev['to_sports'])} 条[/]")
+            console.print(f"[dim]→ dev/sports/project-sports：{len(prev['to_sports'])} 条[/]")
             for line in prev["to_sports"][:12]:
                 console.print(f"  {line}")
             if len(prev["to_sports"]) > 12:
@@ -925,7 +925,7 @@ def cursor_retag_cmd(
         stats = cursor_retag.apply_sports_retag(conn, dry_run=False)
     console.print(
         f"[green]✓[/] Cursor 归位："
-        f" {stats['to_sports']} 条 → dev/project-sports，"
+        f" {stats['to_sports']} 条 → dev/sports/project-sports，"
         f" {stats['to_qr']} 条 → dev/qr，"
         f" 引导语 {stats['fragments']}，"
         f" 会话摘要 {stats['notes']}，"
@@ -938,7 +938,7 @@ def project_normalize_cmd(
     dry_run: bool = typer.Option(False, "--dry-run", help="仅预览，不写库"),
     project: str = typer.Option("", "--project", help="仅迁移指定 legacy/canonical 项目"),
 ):
-    """将历史 project（qr/sports/cursor-qr）归一化为 dev/qr、dev/project-sports。"""
+    """将历史 project（qr/sports/cursor-qr）归一化为 dev/qr、dev/sports/project-sports。"""
     from . import project_normalize
 
     db.init_db()
@@ -1308,9 +1308,27 @@ def workspace_new(
 
 
 @app.command()
-def desktop(install: bool = typer.Option(
-    False, "--install", help="构建并安装「QR本地知识库」到桌面（替换旧 kb.app）")):
-    """macOS 桌面启动器（.app）。"""
+def desktop(
+    install: bool = typer.Option(
+        False, "--install", help="构建并安装「QR本地知识库」到桌面（替换旧 kb.app）",
+    ),
+    open_window: bool = typer.Option(
+        False, "--open", help="打开原生窗口（pywebview，供 .app 启动器调用）",
+    ),
+    browser: bool = typer.Option(
+        False, "--browser", help="用系统浏览器打开（旧行为）",
+    ),
+):
+    """macOS 桌面应用：构建 .app 或打开原生窗口。"""
+    from . import desktop_shell
+
+    if open_window:
+        desktop_shell.open_native_window()
+        return
+    if browser:
+        desktop_shell.open_in_browser()
+        return
+
     script = config.REPO_ROOT / "packaging" / "macos" / "build-app.sh"
     if not script.exists():
         console.print(f"[red]✗[/] 未找到构建脚本: {script}"); raise typer.Exit(1)
@@ -1322,6 +1340,7 @@ def desktop(install: bool = typer.Option(
         raise typer.Exit(r.returncode)
     if install:
         console.print("[green]✓[/] 桌面应用已安装: ~/Desktop/QR本地知识库.app")
+        console.print("[dim]双击打开原生窗口；旧浏览器方式: qr desktop --browser[/]")
     else:
         console.print(f"[dim]构建产物: {config.REPO_ROOT / 'packaging/macos/build/QR本地知识库.app'}[/]")
         console.print("[dim]安装到桌面: qr desktop --install[/]")
@@ -1544,7 +1563,8 @@ def schedule(action: str = typer.Argument("install", help="install / uninstall /
         if res.get("eval_monthly"):
             console.print(
                 f"[green]✓[/] 模型评测(月): 每月 {res.get('eval_day', 1)} 日 "
-                f"{res.get('eval_hour', 3):02d}:00 `qr eval run` → ~/.qr/logs/"
+                f"{res.get('eval_hour', 3):02d}:00 `qr eval run` → "
+                f"{config.LOGS_DIR}/eval-YYYYMM.md"
             )
         console.print(f"[dim]日志: {config.LOGS_DIR}[/]")
         console.print(f"[dim]qr 可执行: {' '.join(config.resolve_qr_argv())}[/]")
@@ -1719,7 +1739,7 @@ app.add_typer(prompts_app, name="prompts")
 
 @eval_app.command("run")
 def eval_run_cmd():
-    """全量模型评测（qwen + deepseek），写入 ~/.qr/logs/model_eval.json 并保留快照。"""
+    """全量模型评测（qwen + deepseek），写入 model_eval.json 与 ~/.qr/logs/eval-YYYYMM.md。"""
     from . import eval_runner
 
     config.ensure_dirs()
@@ -1733,6 +1753,8 @@ def eval_run_cmd():
         console.print(f"[red]✗[/] {result.get('error', '评测失败')}")
         raise typer.Exit(1)
     console.print(f"[green]✓[/] 评测完成 → {result.get('path')}")
+    if result.get("markdown"):
+        console.print(f"[green]✓[/] 月度报告 → {result['markdown']}")
     if result.get("snapshot"):
         console.print(f"[dim]快照: {result['snapshot']}[/]")
 
@@ -1785,10 +1807,49 @@ def prompts_sync():
     console.print(
         f"[green]✓[/] 新碎片 {r['new']} · 跳过 {r['skipped']} · 收件箱 {inbox} 条"
     )
+    ex = int(r.get("excluded_by_session_title") or 0)
+    if ex:
+        console.print(f"[dim]非「执行-」对话未入收件箱：{ex} 条[/]")
     if rep:
         console.print(
             f"[dim]时间戳：精确 {rep.get('exact', 0)} · 推算 {rep.get('estimated', 0)}[/]"
         )
+
+
+@prompts_app.command("purge-prefix")
+def prompts_purge_prefix(
+    dry_run: bool = typer.Option(False, "--dry-run", help="仅预览将删除的数量"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="跳过确认"),
+):
+    """按侧栏标题前缀清理引导语：仅保留「执行-」；参考/未确认不进引导语（时间线保留）。"""
+    from . import prompt_guides
+
+    db.init_db()
+    with db.session() as conn:
+        preview = prompt_guides.purge_non_execute_prompts(conn, dry_run=True)
+    console.print(
+        f"[dim]预览：删碎片 {preview['fragments_removed']}（收件箱 {preview['inbox_removed']}）· "
+        f"删引导语 {preview['guides_removed']} · 保留 {len(preview['guides_kept'])} 条[/]"
+    )
+    if preview["guides_kept"]:
+        console.print(f"[dim]保留引导语 id：{', '.join(str(i) for i in preview['guides_kept'])}[/]")
+    if dry_run:
+        return
+    if not preview["fragments_removed"] and not preview["guides_removed"]:
+        console.print("[green]✓[/] 无需清理")
+        return
+    if not yes and not typer.confirm("确认按「仅执行-」规则清理引导语？时间线不会删除。"):
+        raise typer.Abort()
+    with db.session() as conn:
+        r = prompt_guides.purge_non_execute_prompts(conn, dry_run=False)
+        st = prompt_guides.stats(conn)
+    console.print(
+        f"[green]✓[/] 已删碎片 {r['fragments_removed']} · 引导语 {r['guides_removed']} · "
+        f"导出 md {r['exports_removed']}"
+    )
+    console.print(
+        f"[dim]当前：收件箱 {st['inbox']} · 已保存引导语 {st['guides']}[/]"
+    )
 
 
 @prompts_app.command("list")

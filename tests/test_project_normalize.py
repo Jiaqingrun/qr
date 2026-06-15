@@ -12,7 +12,7 @@ class ProjectNormalizeTests(unittest.TestCase):
         self.assertEqual(workspace.canonical_project_id("cursor-qr"), "dev/qr")
         self.assertEqual(workspace.canonical_project_id("dev/qr"), "dev/qr")
         self.assertEqual(workspace.project_timeline_label("dev/qr"), "qr")
-        self.assertEqual(workspace.project_timeline_label("dev/project-sports"), "project-sports")
+        self.assertEqual(workspace.project_timeline_label("dev/sports/project-sports"), "project-sports")
 
     def test_sanitize_display_legacy_qr(self):
         self.assertEqual(workspace.sanitize_display_project("qr"), "dev/qr")

@@ -525,7 +525,8 @@
   .view--fill > .ask-shell,
   .view--fill > .sum-shell,
   .view--fill > .pg-shell,
-  .page-body--split > .rel-shell{flex:1;min-height:0}
+  .page-body--split > .rel-shell,
+  .page-body--split > .insight-shell{flex:1;min-height:0}
   .page-body > .card{margin-top:0}
   .page-body .pager{flex-shrink:0}
   .view--fill .split-ops{flex-shrink:0;margin-bottom:0}
@@ -1145,6 +1146,108 @@
   .view--fill .insight-grid .panel-pre{flex:1;min-height:120px;max-height:none}
   .view--fill .insight-grid .graph-wrap{flex:1;min-height:200px;height:auto}
   .insight-grid .card{margin-top:0}
+  /* ── 洞察页：侧栏 + 工作区 ── */
+  .insight-shell{
+    display:grid;grid-template-columns:minmax(200px,240px) minmax(0,1fr);
+    gap:var(--split-gap);flex:1;min-height:0;overflow:hidden;
+  }
+  @media(max-width:900px){
+    .insight-shell{grid-template-columns:1fr;grid-template-rows:auto minmax(0,1fr)}
+    .insight-nav{flex-direction:row;flex-wrap:wrap}
+    .insight-nav-btn{flex:1;min-width:72px;text-align:center;box-shadow:none!important}
+    .insight-nav-btn.active{box-shadow:inset 0 -2px 0 var(--rose)!important}
+    .insight-card--plan-compact .daily-plan-list--compact{grid-template-columns:1fr;max-height:180px}
+  }
+  .insight-sidebar{
+    display:flex;flex-direction:column;gap:10px;
+    min-height:0;overflow:auto;margin:0;
+  }
+  .insight-nav{display:flex;flex-direction:column;gap:4px}
+  .insight-nav-btn{
+    text-align:left;padding:10px 12px;border:none;border-radius:var(--r-sm);
+    background:transparent;color:var(--muted);font-size:13px;font-weight:650;
+    cursor:pointer;transition:background .15s,color .15s;
+  }
+  .insight-nav-btn:hover{color:var(--text);background:rgba(255,255,255,.04)}
+  .insight-nav-btn.active{
+    color:var(--text);background:rgba(255,120,140,.1);
+    box-shadow:inset 3px 0 0 var(--rose);
+  }
+  .insight-side-stats{
+    display:flex;flex-direction:column;gap:8px;
+    padding:10px 0;border-top:1px solid var(--border);margin-top:4px;
+  }
+  .insight-stat-mini{
+    display:flex;justify-content:space-between;align-items:center;gap:8px;
+    font-size:12px;color:var(--muted);
+  }
+  .insight-stat-mini strong{
+    color:var(--text);font-weight:650;font-size:13px;
+    max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+  .insight-side-ops{display:flex;flex-direction:column;gap:6px;margin-top:auto}
+  .insight-main{display:flex;flex-direction:column;min-height:0;min-width:0;overflow:hidden}
+  .insight-panel{display:none;flex-direction:column;gap:10px;flex:1;min-height:0;overflow:hidden}
+  .insight-panel.active{display:flex}
+  .insight-toolbar{
+    display:flex;flex-wrap:wrap;align-items:center;gap:6px;flex-shrink:0;
+    padding:8px 10px;background:rgba(0,0,0,.12);border:1px solid var(--border);border-radius:var(--r-sm);
+  }
+  .insight-toolbar--sub{
+    padding:6px 10px;background:transparent;border-style:dashed;
+  }
+  .insight-toolbar--sub .btn{font-size:11px;padding:4px 9px}
+  .insight-bench-main{
+    display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,.95fr);
+    gap:var(--split-gap);flex:1;min-height:0;
+  }
+  @media(max-width:900px){.insight-bench-main{grid-template-columns:1fr}}
+  .insight-card--plan-compact{
+    flex-shrink:0;max-height:min(200px,30vh);
+  }
+  .insight-card--plan-compact .daily-plan-list--compact{
+    display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));
+    gap:8px;flex:1;overflow:auto;min-height:0;
+    max-height:140px;padding:8px 10px 10px;
+  }
+  .insight-card--plan-compact .daily-plan-item{padding:8px 10px;gap:10px}
+  .insight-card--plan-compact .plan-cmd{font-size:11px;-webkit-line-clamp:1;display:-webkit-box;-webkit-box-orient:vertical;overflow:hidden}
+  .insight-card--plan-compact .plan-hint{margin-top:2px}
+  .insight-bench-main .insight-card{min-height:0}
+  .insight-card{
+    display:flex;flex-direction:column;min-height:0;overflow:hidden;
+    background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);
+  }
+  .insight-card-head{
+    display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+    padding:10px 14px;border-bottom:1px solid var(--border);
+    font-size:12px;font-weight:700;color:var(--text);flex-shrink:0;
+  }
+  .insight-card-head .hint{margin-left:auto;font-size:11px;font-weight:400}
+  .insight-card-body{
+    flex:1;min-height:0;overflow:auto;margin:0;padding:12px 14px;
+    font-size:12.5px;line-height:1.68;color:var(--text2);
+    white-space:pre-wrap;font-family:var(--font);background:transparent;
+  }
+  .insight-card-body--prose{font-size:13px;line-height:1.72;color:var(--text)}
+  .insight-card-body.is-empty{color:var(--muted);font-size:12px}
+  .insight-card--plan{display:flex;flex-direction:column;min-height:0}
+  .insight-card--plan-compact{flex:0 0 auto;min-height:0}
+  .insight-card--plan .daily-plan-list{
+    flex:1;overflow:auto;min-height:0;padding:8px 10px 12px;
+  }
+  .insight-card--graph{flex:1;min-height:0}
+  .insight-card--graph .graph-wrap{
+    flex:1;min-height:320px;height:auto;margin:0;border:none;border-radius:0;
+    background:radial-gradient(ellipse 85% 75% at 50% 42%,rgba(255,120,140,.07),var(--bg0) 70%);
+  }
+  .insight-card--graph .insight-card-head{margin:0}
+  .insight-card--graph .graph-wrap{border-top:1px solid var(--border)}
+  .insight-split{
+    display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+    gap:var(--split-gap);flex:1;min-height:0;
+  }
+  @media(max-width:900px){.insight-split{grid-template-columns:1fr;overflow:auto}}
   .daily-plan-card{flex-shrink:0}
   .daily-plan-list{display:flex;flex-direction:column;gap:10px;padding:2px 0}
   .daily-plan-item{
@@ -1917,45 +2020,94 @@
       </section>
 
       <section class="view view--fill" id="view-insight">
-        <div class="page-ops">
-        <div class="toolbar-stack">
-          <div class="toolbar-row">
-            <span class="toolbar-label">洞察</span>
-            <div class="btn-group">
-              <button class="btn btn-primary btn-sm" id="todayRefreshBtn">今日总览</button>
-              <button class="btn btn-ghost btn-sm" id="digestBtn">每日洞察</button>
-              <button class="btn btn-ghost btn-sm" id="digestNotifyBtn">洞察+通知</button>
-              <button class="btn btn-ghost btn-sm" id="insightAlertsBtn">主动提醒</button>
-              <button class="btn btn-ghost btn-sm" id="complianceBtn">合规</button>
-              <button class="btn btn-ghost btn-sm" id="graphBtn">图谱</button>
-              <button class="btn btn-ghost btn-sm" id="factsInsightBtn">稳定事实</button>
-              <button class="btn btn-ghost btn-sm" id="exportBtn">导出 Obsidian</button>
+        <div class="page-body page-body--split">
+        <div class="insight-shell split-shell">
+          <aside class="insight-sidebar split-sidebar card">
+            <div class="card-head" style="margin:0;padding:12px 14px;border-bottom:1px solid var(--border)">洞察工作台</div>
+            <nav class="insight-nav" role="tablist" aria-label="洞察分区">
+              <button type="button" class="insight-nav-btn active" data-insight-tab="bench" role="tab" aria-selected="true">工作台</button>
+              <button type="button" class="insight-nav-btn" data-insight-tab="digest" role="tab" aria-selected="false">每日洞察</button>
+              <button type="button" class="insight-nav-btn" data-insight-tab="graph" role="tab" aria-selected="false">知识图谱</button>
+              <button type="button" class="insight-nav-btn" data-insight-tab="quality" role="tab" aria-selected="false">合规评测</button>
+            </nav>
+            <div class="insight-side-stats" id="insightStatRow">
+              <div class="insight-stat-mini"><span>活跃项目</span><strong id="insightKpiProject">—</strong></div>
+              <div class="insight-stat-mini"><span>引导语收件箱</span><strong id="insightKpiInbox">—</strong></div>
+              <div class="insight-stat-mini"><span>主动提醒</span><strong id="insightKpiAlerts">—</strong></div>
+              <div class="insight-stat-mini"><span>接着干</span><strong id="insightKpiActions">—</strong></div>
             </div>
-          </div>
-          <div class="toolbar-row">
-            <span class="toolbar-label">评测</span>
-            <div class="btn-group">
-              <button class="btn btn-ghost btn-sm" id="evalRunBtn">运行评测</button>
-              <button class="btn btn-ghost btn-sm" id="evalBtn">结果</button>
-              <button class="btn btn-ghost btn-sm" id="evalHistoryBtn">趋势</button>
-              <button class="btn btn-ghost btn-sm" id="evalRegBtn">回归</button>
-              <button class="btn btn-ghost btn-sm" id="evalFixBtn">失败分析</button>
-              <button class="btn btn-ghost btn-sm" id="evalPlanBtn">修复工单</button>
-              <button class="btn btn-ghost btn-sm" id="evalExecBtn">自动修复</button>
-              <button class="btn btn-ghost btn-sm" id="evalDecisionBtn">→ 决策草稿</button>
+            <div class="insight-side-ops">
+              <button class="btn btn-primary btn-sm" id="todayRefreshBtn">刷新总览</button>
+              <button class="btn btn-ghost btn-sm" id="insightAlertsBtn">刷新提醒</button>
             </div>
+          </aside>
+          <div class="insight-main split-main">
+            <section class="insight-panel active" data-insight-panel="bench" role="tabpanel">
+              <div class="insight-card insight-card--plan insight-card--plan-compact">
+                <div class="insight-card-head">每日计划 <span class="hint" id="dailyPlanMeta"></span></div>
+                <div id="dailyPlanList" class="daily-plan-list daily-plan-list--compact">加载中…</div>
+              </div>
+              <div class="insight-bench-main">
+                <div class="insight-card">
+                  <div class="insight-card-head">接着干 · 洞察预览</div>
+                  <pre class="insight-card-body" id="todayOut">加载中…</pre>
+                </div>
+                <div class="insight-card">
+                  <div class="insight-card-head">主动提醒</div>
+                  <pre class="insight-card-body is-empty" id="insightAlertsOut">暂无主动提醒</pre>
+                </div>
+              </div>
+            </section>
+            <section class="insight-panel" data-insight-panel="digest" role="tabpanel">
+              <div class="insight-toolbar">
+                <button class="btn btn-primary btn-sm" id="digestBtn">每日洞察</button>
+                <button class="btn btn-ghost btn-sm" id="digestNotifyBtn">洞察+通知</button>
+                <button class="btn btn-ghost btn-sm" id="factsInsightBtn">稳定事实</button>
+                <button class="btn btn-ghost btn-sm" id="exportBtn">导出 Obsidian</button>
+              </div>
+              <div class="insight-card" style="flex:1;min-height:0">
+                <div class="insight-card-head">洞察摘要</div>
+                <pre class="insight-card-body insight-card-body--prose" id="insightOut">点击「每日洞察」生成摘要；「稳定事实」查看知识库要点。</pre>
+              </div>
+            </section>
+            <section class="insight-panel insight-panel--graph" data-insight-panel="graph" role="tabpanel">
+              <div class="insight-toolbar">
+                <button class="btn btn-primary btn-sm" id="graphBtn">加载图谱</button>
+                <span class="hint" style="margin:0">拖拽平移 · 滚轮缩放</span>
+              </div>
+              <div class="insight-card insight-card--graph">
+                <div class="insight-card-head">知识图谱</div>
+                <div class="graph-wrap graph-wrap--insight" id="insightGraphWrap">
+                  <svg id="graphSvg" viewBox="0 0 1000 480" role="img" aria-label="知识图谱"></svg>
+                </div>
+              </div>
+            </section>
+            <section class="insight-panel" data-insight-panel="quality" role="tabpanel">
+              <div class="insight-toolbar">
+                <button class="btn btn-primary btn-sm" id="complianceBtn">合规扫描</button>
+                <button class="btn btn-primary btn-sm" id="evalRunBtn">运行评测</button>
+              </div>
+              <div class="insight-toolbar insight-toolbar--sub">
+                <button class="btn btn-ghost btn-sm" id="evalBtn">结果</button>
+                <button class="btn btn-ghost btn-sm" id="evalHistoryBtn">趋势</button>
+                <button class="btn btn-ghost btn-sm" id="evalRegBtn">回归</button>
+                <button class="btn btn-ghost btn-sm" id="evalFixBtn">失败分析</button>
+                <button class="btn btn-ghost btn-sm" id="evalPlanBtn">修复工单</button>
+                <button class="btn btn-ghost btn-sm" id="evalExecBtn">自动修复</button>
+                <button class="btn btn-ghost btn-sm" id="evalDecisionBtn">→ 决策草稿</button>
+              </div>
+              <div class="insight-split">
+                <div class="insight-card">
+                  <div class="insight-card-head">合规</div>
+                  <pre class="insight-card-body" id="insightComplianceOut">点击「合规扫描」检查各项目规范。</pre>
+                </div>
+                <div class="insight-card">
+                  <div class="insight-card-head">评测</div>
+                  <pre class="insight-card-body" id="insightEvalOut">运行评测后，结果与趋势显示在此处。</pre>
+                </div>
+              </div>
+            </section>
           </div>
-        </div>
-        </div>
-        <div class="page-body page-body--grid">
-        <div class="card daily-plan-card">
-          <div class="card-head">每日计划 <span class="hint" id="dailyPlanMeta"></span></div>
-          <div id="dailyPlanList" class="daily-plan-list">加载中…</div>
-        </div>
-        <div class="insight-grid">
-          <div class="card"><div class="card-head">今日总览</div><pre class="panel-pre" id="todayOut">加载中…</pre></div>
-          <div class="card"><div class="card-head">洞察 / 图谱</div><pre class="panel-pre" id="insightOut">点击上方按钮生成洞察、图谱或评测结果。</pre><div class="graph-wrap"><svg id="graphSvg" viewBox="0 0 1000 480"></svg></div></div>
-          <div class="card"><div class="card-head">主动提醒 / 合规 / 评测</div><pre class="panel-pre" id="insightAlertsOut" style="max-height:120px;overflow:auto">—</pre><pre class="panel-pre panel-pre--tall" id="insightOut2"></pre></div>
         </div>
         </div>
       </section>
@@ -4867,8 +5019,9 @@ function graphBindZoom(svg){
 }
 
 function loadInsightPlaceholder(){
-  if(!$('#insightOut').textContent.trim()) $('#insightOut').textContent='点击上方按钮生成洞察、图谱或评测结果。';
-  if(!$('#insightOut2').textContent.trim()) $('#insightOut2').textContent='合规与评测输出将显示在此处。';
+  if(!$('#insightOut').textContent.trim()) $('#insightOut').textContent='点击「每日洞察」生成摘要；「稳定事实」查看知识库要点。';
+  if(!$('#insightComplianceOut').textContent.trim()) $('#insightComplianceOut').textContent='点击「合规扫描」检查各项目规范。';
+  if(!$('#insightEvalOut').textContent.trim()) $('#insightEvalOut').textContent='运行评测后，结果与趋势显示在此处。';
   const gs=$('#graphSvg');
   if(gs){gs.innerHTML='';graphResetView(gs)}
 }
@@ -4895,12 +5048,12 @@ $('#complianceBtn').onclick=async()=>{
     const r=await api('/api/compliance');
     const n=(r.results||[]).length;
     const bad=(r.results||[]).filter(x=>!x.ok).length;
-    $('#insightOut2').textContent=(r.results||[]).map(x=>`${x.ok?'✓':'✗'} ${x.path.split('/').pop()}\n  ${(x.issues||[]).join('; ')||'合规'}`).join('\n\n')||'无项目';
+    $('#insightComplianceOut').textContent=(r.results||[]).map(x=>`${x.ok?'✓':'✗'} ${x.path.split('/').pop()}\n  ${(x.issues||[]).join('; ')||'合规'}`).join('\n\n')||'无项目';
     msg=bad?`合规扫描完成：${n} 项，${bad} 项待处理`:`合规扫描完成：${n} 项均合规`;
   }catch(e){
     err=true;
     msg='出错：'+e.message;
-    $('#insightOut2').textContent=msg;
+    $('#insightComplianceOut').textContent=msg;
   }
   qrRunEnd('insight-compliance',{message:msg,error:err});
 };
@@ -5231,20 +5384,20 @@ $('#relSuiteNewBtn').onclick=async()=>{
 $('#evalRunBtn').onclick=async()=>{
   if(qrRunHas('insight-eval-run')) return;
   qrRunStart({id:'insight-eval-run',label:'模型评测',group:'insight'});
-  $('#insightOut2').textContent='评测运行中，通常需要几分钟…（切换页面不会取消）';
+  $('#insightEvalOut').textContent='评测运行中，通常需要几分钟…（切换页面不会取消）';
   let err=false,msg='';
   try{
     const r=await api('/api/eval/run',{method:'POST'});
-    $('#insightOut2').textContent=`${r.message}\n\n${r.stdout||''}`;
+    $('#insightEvalOut').textContent=`${r.message}\n\n${r.stdout||''}`;
     msg=(r.message||'模型评测已完成').replace(/\s+/g,' ').slice(0,160);
   }catch(e){
     err=true;
     msg='出错：'+e.message;
-    $('#insightOut2').textContent=msg;
+    $('#insightEvalOut').textContent=msg;
   }
   qrRunEnd('insight-eval-run',{message:msg,error:err});
 };
-$('#evalBtn').onclick=async()=>{try{const r=await api('/api/eval');$('#insightOut2').textContent=JSON.stringify(r,null,2).slice(0,8000)}catch(e){$('#insightOut2').textContent='出错：'+e.message}};
+$('#evalBtn').onclick=async()=>{try{const r=await api('/api/eval');$('#insightEvalOut').textContent=JSON.stringify(r,null,2).slice(0,8000)}catch(e){$('#insightEvalOut').textContent='出错：'+e.message}};
 $('#evalHistoryBtn').onclick=async()=>{
   try{
     const r=await api('/api/eval/history');
@@ -5255,8 +5408,8 @@ $('#evalHistoryBtn').onclick=async()=>{
         :[`qwen ${x.qwen_ok}/${x.total}`,`deepseek ${x.deep_ok}/${x.total}`];
       return `${x.time} | ${parts.join(' · ')}`;
     }).join('\n');
-    $('#insightOut2').textContent=rows||'暂无历史评测';
-  }catch(e){$('#insightOut2').textContent='出错：'+e.message}
+    $('#insightEvalOut').textContent=rows||'暂无历史评测';
+  }catch(e){$('#insightEvalOut').textContent='出错：'+e.message}
 };
 $('#evalFixBtn').onclick=async()=>{
   if(qrRunHas('insight-eval-fix')) return;
@@ -5265,7 +5418,7 @@ $('#evalFixBtn').onclick=async()=>{
   try{
     const r=await api('/api/eval/failures');
     if(!(r.items||[]).length){
-      $('#insightOut2').textContent=r.summary||'最近一次评测无失败项（全通过）';
+      $('#insightEvalOut').textContent=r.summary||'最近一次评测无失败项（全通过）';
       msg=r.summary||'无失败项';
     }else{
       const text=(r.items||[]).map((x,i)=>[
@@ -5278,13 +5431,13 @@ $('#evalFixBtn').onclick=async()=>{
         `修复建议:`,
         ...(x.suggestions||[]).map(s=>`- ${s}`),
       ].join('\n')).join('\n\n');
-      $('#insightOut2').textContent=`${r.summary}\n\n${text}`;
+      $('#insightEvalOut').textContent=`${r.summary}\n\n${text}`;
       msg=`失败分析完成：${(r.items||[]).length} 项`;
     }
   }catch(e){
     err=true;
     msg='出错：'+e.message;
-    $('#insightOut2').textContent=msg;
+    $('#insightEvalOut').textContent=msg;
   }
   qrRunEnd('insight-eval-fix',{message:msg,error:err});
 };
@@ -5296,12 +5449,12 @@ $('#evalPlanBtn').onclick=async()=>{
     const r=await api('/api/eval/fixplan');
     const actions=(r.actions||[]).map(a=>`- [${a.auto?'自动':'手动'}] ${a.id}: ${a.title}（${a.why}）`).join('\n');
     const checklist=(r.checklist||[]).map(x=>`- ${x}`).join('\n');
-    $('#insightOut2').textContent=[r.summary||'', '', '修复动作：', actions||'无', '', '执行清单：', checklist||'无'].join('\n');
+    $('#insightEvalOut').textContent=[r.summary||'', '', '修复动作：', actions||'无', '', '执行清单：', checklist||'无'].join('\n');
     msg=r.summary||'修复工单已生成';
   }catch(e){
     err=true;
     msg='出错：'+e.message;
-    $('#insightOut2').textContent=msg;
+    $('#insightEvalOut').textContent=msg;
   }
   qrRunEnd('insight-eval-plan',{message:msg,error:err});
 };
@@ -5309,7 +5462,7 @@ $('#evalExecBtn').onclick=async()=>{
   if(!confirm('将执行自动动作（全量 reindex + 重跑评测），可能耗时较长。继续？')) return;
   if(qrRunHas('insight-eval-exec')) return;
   qrRunStart({id:'insight-eval-exec',label:'评测自动修复',group:'insight'});
-  $('#insightOut2').textContent='自动修复执行中，请稍候...';
+  $('#insightEvalOut').textContent='自动修复执行中，请稍候...';
   let err=false,msg='';
   try{
     const r=await api('/api/eval/execute',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({actions:['reindex','rerun_eval']})});
@@ -5318,13 +5471,13 @@ $('#evalExecBtn').onclick=async()=>{
       if(x.stats) return base+` | files=${x.stats.files}, chunks=${x.stats.chunks}`;
       return base+(x.error?` | ${x.error}`:'');
     }).join('\n');
-    $('#insightOut2').textContent=`自动修复${r.ok?'完成':'部分失败'}\n\n${rows}`;
+    $('#insightEvalOut').textContent=`自动修复${r.ok?'完成':'部分失败'}\n\n${rows}`;
     msg=r.ok?'自动修复已完成':'自动修复部分失败';
     err=!r.ok;
   }catch(e){
     err=true;
     msg='出错：'+e.message;
-    $('#insightOut2').textContent=msg;
+    $('#insightEvalOut').textContent=msg;
   }
   qrRunEnd('insight-eval-exec',{message:msg,error:err});
 };
@@ -5346,8 +5499,8 @@ $('#digestNotifyBtn').onclick=async()=>{
   }
   qrRunEnd('insight-digest-notify',{message:msg,error:err});
 };
-$('#factsInsightBtn').onclick=async()=>{try{const r=await api('/api/facts');$('#insightOut2').textContent=(r.facts||[]).map(f=>`${f.key}: ${f.value}${f.project?' · '+f.project:''}`).join('\n')||'暂无，可点「同步事实」'}catch(e){$('#insightOut2').textContent='出错：'+e.message}};
-$('#evalRegBtn').onclick=async()=>{try{const r=await api('/api/eval/regression');const rows=(r.series||[]).map(s=>`${s.time} | qwen ${s.qwen}/${s.total} | deep ${s.deepseek}/${s.total} (${s.label})`).join('\n');const d=r.delta?`\nΔ qwen ${r.delta.qwen>=0?'+':''}${r.delta.qwen} · deep ${r.delta.deepseek>=0?'+':''}${r.delta.deepseek}`:'';$('#insightOut2').textContent=(rows||'无历史')+d}catch(e){$('#insightOut2').textContent='出错：'+e.message}};
+$('#factsInsightBtn').onclick=async()=>{try{const r=await api('/api/facts');$('#insightOut').textContent=(r.facts||[]).map(f=>`${f.key}: ${f.value}${f.project?' · '+f.project:''}`).join('\n')||'暂无，可点「同步事实」'}catch(e){$('#insightOut').textContent='出错：'+e.message}};
+$('#evalRegBtn').onclick=async()=>{try{const r=await api('/api/eval/regression');const rows=(r.series||[]).map(s=>`${s.time} | qwen ${s.qwen}/${s.total} | deep ${s.deepseek}/${s.total} (${s.label})`).join('\n');const d=r.delta?`\nΔ qwen ${r.delta.qwen>=0?'+':''}${r.delta.qwen} · deep ${r.delta.deepseek>=0?'+':''}${r.delta.deepseek}`:'';$('#insightEvalOut').textContent=(rows||'无历史')+d}catch(e){$('#insightEvalOut').textContent='出错：'+e.message}};
 $('#evalDecisionBtn').onclick=async()=>{try{const r=await api('/api/eval/decision-draft',{method:'POST'});$('#noteInput').value=r.text;switchView('timeline');$('#noteInput').focus()}catch(e){alert(e.message)}};
 
 const opsState={data:null,imports:[]};

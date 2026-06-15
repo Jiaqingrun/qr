@@ -40,6 +40,42 @@ class TestEvalRunner(unittest.TestCase):
             self.assertEqual(len(snaps), 1)
             self.assertEqual(json.loads(snaps[0].read_text(encoding="utf-8")), {"ok": True})
 
+    def test_render_eval_markdown_and_log_path(self):
+        with tempfile.TemporaryDirectory() as td:
+            logs = Path(td) / "logs"
+            logs.mkdir()
+            data = {
+                "chat_model": "qwen2.5:72b",
+                "deep_model": "deepseek-r1:32b",
+                "rag_summary": {
+                    "cases": 2,
+                    "retrieval_ok": 2,
+                    "retrieval_rate": 100.0,
+                    "forbidden_hits": 0,
+                    "search_avg": 0.5,
+                },
+                "rag_baseline": [],
+                "results": {
+                    "qwen": [
+                        {
+                            "case": "port",
+                            "tier": "core",
+                            "model": "qwen2.5:72b",
+                            "must_pass": True,
+                            "retrieval_ok": True,
+                            "ask_s": 1.2,
+                        }
+                    ],
+                },
+            }
+            with mock.patch.object(config, "LOGS_DIR", logs):
+                md = eval_runner.render_eval_markdown(data, generated_ts=1717200000)
+                path = eval_runner.write_eval_log_markdown(data, generated_ts=1717200000)
+            self.assertIn("2024-06", md)
+            self.assertIn("qwen2.5:72b", md)
+            self.assertEqual(path.name, "eval-202406.md")
+            self.assertTrue(path.is_file())
+
 
 if __name__ == "__main__":
     unittest.main()

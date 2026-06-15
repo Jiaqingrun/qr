@@ -200,7 +200,7 @@ def apply_sports_retag(
     *,
     dry_run: bool = False,
 ) -> dict[str, int]:
-    """体育相关 Cursor 问话 → dev/project-sports；误标 sports → dev/qr。"""
+    """体育相关 Cursor 问话 → dev/sports/project-sports；误标 sports → dev/qr。"""
     stats = {
         "to_sports": 0,
         "to_qr": 0,

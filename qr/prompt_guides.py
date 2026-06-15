@@ -10,6 +10,7 @@ from typing import Any
 
 from . import config, db, timeutil, workspace
 from . import cursor_prompt_time as cpt
+from . import cursor_session_title as cst
 
 ORIGIN_AUTO = "auto"
 ORIGIN_MANUAL = "manual"
@@ -372,7 +373,8 @@ def sync_cursor_inbox(conn: sqlite3.Connection) -> dict[str, int]:
         "SELECT uid, ts, project, title, content FROM events WHERE source='cursor' "
         "ORDER BY ts DESC LIMIT 5000"
     ).fetchall()
-    new = skipped = 0
+    titles = cst.load_session_titles(cfg=cfg)
+    new = skipped = excluded_title = 0
     for r in rows:
         uid = r["uid"]
         if not uid or not str(uid).startswith("cursor:"):
@@ -387,6 +389,13 @@ def sync_cursor_inbox(conn: sqlite3.Connection) -> dict[str, int]:
         if exists:
             skipped += 1
             continue
+        parsed_uid = cpt.parse_event_uid(uid)
+        if parsed_uid:
+            session_id, _ = parsed_uid
+            chat_title = titles.get(session_id, "")
+            if not cst.should_include_in_prompt_guides(chat_title):
+                excluded_title += 1
+                continue
         content = _resolve_fragment_query(
             content=(r["content"] or "").strip(),
             event_uid=uid,
@@ -436,7 +445,13 @@ def sync_cursor_inbox(conn: sqlite3.Connection) -> dict[str, int]:
     conn.commit()
     repair = repair_inbox_timestamps(conn)
     query_repair = repair_inbox_queries(conn)
-    return {"new": new, "skipped": skipped, "repair": repair, "query_repair": query_repair}
+    return {
+        "new": new,
+        "skipped": skipped,
+        "excluded_by_session_title": excluded_title,
+        "repair": repair,
+        "query_repair": query_repair,
+    }
 
 
 def repair_inbox_queries(conn: sqlite3.Connection) -> dict[str, int]:
@@ -1045,6 +1060,107 @@ def delete_guide(conn: sqlite3.Connection, guide_id: int) -> None:
     )
     conn.execute("DELETE FROM prompt_guides WHERE id=?", (guide_id,))
     conn.commit()
+
+
+def _fragment_session_title(
+    frag: sqlite3.Row | dict[str, Any],
+    titles: dict[str, str],
+) -> str:
+    sid = str(frag["cursor_session_id"] or "").strip()
+    if not sid:
+        parsed = cpt.parse_event_uid(str(frag.get("event_uid") or ""))
+        if parsed:
+            sid = parsed[0]
+    return titles.get(sid, "")
+
+
+def _remove_guide_exports(conn: sqlite3.Connection, guide_id: int) -> int:
+    """删除引导语导出的 Markdown 并从检索索引移除。"""
+    cfg = config.load_config()
+    root = Path(cfg.get("prompt_guides_dir", str(config.QR_HOME / "prompts"))).expanduser()
+    removed = 0
+    if not root.is_dir():
+        return 0
+    for path in root.glob(f"**/{guide_id:04d}-*.md"):
+        _purge_document_path(conn, path)
+        try:
+            path.unlink()
+            removed += 1
+        except OSError:
+            pass
+    return removed
+
+
+def purge_non_execute_prompts(
+    conn: sqlite3.Connection,
+    *,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """按侧栏标题前缀清理引导语：仅保留「执行-」；时间线 events 不动。"""
+    ensure_schema(conn)
+    titles = cst.load_session_titles()
+    frags = conn.execute(
+        "SELECT id, event_uid, cursor_session_id, guide_id FROM prompt_guide_fragments",
+    ).fetchall()
+    bad_frag_ids: list[int] = []
+    for f in frags:
+        if not cst.should_include_in_prompt_guides(_fragment_session_title(f, titles)):
+            bad_frag_ids.append(int(f["id"]))
+
+    guides = conn.execute("SELECT id, origin FROM prompt_guides").fetchall()
+    drop_guide_ids: list[int] = []
+    kept_guide_ids: list[int] = []
+    for g in guides:
+        gid = int(g["id"])
+        if g["origin"] == ORIGIN_MANUAL:
+            kept_guide_ids.append(gid)
+            continue
+        gfrags = conn.execute(
+            "SELECT cursor_session_id, event_uid FROM prompt_guide_fragments WHERE guide_id=?",
+            (gid,),
+        ).fetchall()
+        if not gfrags:
+            drop_guide_ids.append(gid)
+            continue
+        if any(
+            cst.should_include_in_prompt_guides(_fragment_session_title(f, titles))
+            for f in gfrags
+        ):
+            kept_guide_ids.append(gid)
+        else:
+            drop_guide_ids.append(gid)
+
+    inbox_bad = sum(
+        1 for f in frags
+        if int(f["id"]) in bad_frag_ids and f["guide_id"] is None
+    )
+    stats: dict[str, Any] = {
+        "dry_run": dry_run,
+        "fragments_removed": len(bad_frag_ids),
+        "inbox_removed": inbox_bad,
+        "guides_removed": len(drop_guide_ids),
+        "guides_kept": kept_guide_ids,
+        "exports_removed": 0,
+    }
+    if dry_run:
+        return stats
+
+    exports = 0
+    for gid in drop_guide_ids:
+        exports += _remove_guide_exports(conn, gid)
+        conn.execute("DELETE FROM prompt_guide_fragments WHERE guide_id=?", (gid,))
+        conn.execute("DELETE FROM prompt_guides WHERE id=?", (gid,))
+
+    if bad_frag_ids:
+        ph = ",".join("?" * len(bad_frag_ids))
+        conn.execute(
+            f"DELETE FROM prompt_guide_fragments WHERE id IN ({ph})",
+            bad_frag_ids,
+        )
+
+    stats["exports_removed"] = exports
+    conn.commit()
+    return stats
 
 
 def recent_guide_projects(conn, start: int, end: int, *, limit: int = 4) -> list[str]:

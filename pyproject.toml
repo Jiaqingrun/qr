@@ -2,6 +2,8 @@
 name = "qr"
 version = "0.1.0"
 description = "QR本地个人行为知识库与治理系统（离线，基于 ollama）"
+readme = "README.md"
+license = "MIT"
 requires-python = ">=3.10"
 dependencies = [
     "typer>=0.12",
@@ -13,6 +15,7 @@ dependencies = [
     "uvicorn[standard]>=0.29",
     "pyobjc-framework-Cocoa>=10.0; sys_platform == 'darwin'",
     "pyobjc-framework-Quartz>=10.0; sys_platform == 'darwin'",
+    "pywebview>=5.0; sys_platform == 'darwin'",
 ]
 
 [project.scripts]

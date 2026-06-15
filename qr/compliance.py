@@ -33,8 +33,14 @@ def check_project(path: Path) -> dict:
     from . import project_standards, workspace
 
     if workspace.is_under_workspace(path):
-        if project_standards.read_project_standards(path):
+        proj_body = project_standards.read_project_standards(path)
+        if proj_body:
             ok_items.append("PROJECT.md")
+            mixed = project_standards.mixed_standards_issues(proj_body)
+            if mixed:
+                issues.append(
+                    "PROJECT.md 混入全局规范（应分层、不混写）：" + "；".join(mixed[:3])
+                )
         else:
             issues.append("缺少 PROJECT.md（项目级规范，可用 qr project standards --edit 创建）")
         personal = rules / "00-personal-standards.mdc"

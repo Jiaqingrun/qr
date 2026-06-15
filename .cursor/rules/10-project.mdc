@@ -5,7 +5,7 @@ globs:
 alwaysApply: true
 ---
 
-以下约定仅适用于本仓库；与全局个人规范冲突时，以**本项目**为准。
+以下约定仅适用于本仓库（勿重复 00-personal-standards 中的全局条文）；与全局冲突时以**本项目**为准。
 
 # 项目约定 · qr
 
@@ -29,3 +29,4 @@ alwaysApply: true
 - 先读 `README.md`、`docs/USE_CASES.md`
 - 最小 diff；不提交除非用户要求
 - 时间线 cursor 事件按 file 打开归档路径，不用弹窗
+- **规范分层**：全局条文只在 `standards/STANDARDS.md`；本项目约定只写本文件，**绝对不混写**

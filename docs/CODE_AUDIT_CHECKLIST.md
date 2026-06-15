@@ -65,6 +65,14 @@
 - [ ] 新 CLI / API / MCP / Web 能力已写入 `README.md` 与 `docs/USE_CASES.md`
 - [ ] 必要时更新 `PROJECT.md`、`.cursor/rules/10-project.mdc`
 - [ ] 已移除未使用代码（死函数、冗余导入）
+- [ ] **许可声明**（若本次改动涉及依赖 / 默认模型 / 联网 API / 前端第三方库 / 打包方式 / 协议变更）：
+  - [ ] `LICENSE` 与 `pyproject.toml` · `license` 仍正确
+  - [ ] `THIRD_PARTY_NOTICES.md` 已更新（含文首日期）
+  - [ ] `README.md` ·「许可与外部组件」与再分发清单仍准确
+- [ ] **规范分层**（全局 `standards.md` 与项目 `PROJECT.md` **绝对不混写**）：
+  - [ ] 全局未写入具体业务项目技术栈/领域规则
+  - [ ] 各项目 `PROJECT.md` 未复制「## 一、」～「## 六、」等全局章节
+  - [ ] `qr doctor` / `qr compliance` 无「混入全局规范」告警
 
 ---
 

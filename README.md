@@ -5,6 +5,15 @@
 [ollama](https://ollama.com)（`bge-m3` 做向量，`qwen2.5:72b` 日常问答、`deepseek-r1:70b` 深度推理），
 数据不出本机。
 
+## 许可与外部组件
+
+- **本仓库源码**： [MIT](LICENSE)
+- **Python 依赖**：见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)（均为 MIT / BSD / Apache-2.0 等宽松协议，无 GPL 传染链）
+- **安装范围**：仅需 `pip install -e .` 时 `pyproject.toml` 声明的依赖
+- **Ollama**：需用户在本机单独安装（[Ollama 为 MIT](https://github.com/ollama/ollama/blob/main/LICENSE)），**不随本仓库分发**
+- **大模型权重**：由用户自行 `ollama pull`；各模型许可以 [Ollama 模型页](https://ollama.com/library) 及上游官方为准
+- **联网搜索（可选）**：`qr ask --web` 使用百度/必应抓取或百度千帆 API，受对应服务条款约束
+
 ## 功能点
 - [x] 行为采集与时间线（shell / git / file / cursor / notes）
 - [x] 向量检索、Hybrid 问答与符号定位
@@ -29,7 +38,7 @@ pip install -e ~/QR/dev/qr
 qr init
 ```
 
-> **勿再使用** `conda activate kb`：那是旧版环境名。若仍并存 `kb` 与 `qr`，请只用 `qr`，确认无误后可 `conda remove -n kb`。运行 `qr doctor` 可检查 launchd 是否仍指向旧路径。
+> **旧版 kb 用户**：若仍使用 conda 环境 `kb` 或 `~/.kb`，请改用 `qr` / `~/.qr` 后执行 `qr init` 与 `qr schedule install`。
 
 ## 常用命令
 ```bash
@@ -83,8 +92,6 @@ qr index --reindex        # 迁移后重建索引（project 变为 dev/qr 形式
 - 路径与职责的**规范条文**见 `standards/STANDARDS.md`（生效副本：`~/.qr/standards.md`）
 
 `qr init` 会在检测到 `~/.kb` 时自动把缺失项迁入 `~/.qr`（不覆盖已有 `qr.db`）。
-
-> **仅旧版 kb 用户**：若你仍在使用 conda 环境 `kb`、`~/.kb` 数据目录，或 launchd 标签 `com.qr.kb.*`，请改用环境 `qr`、目录 `~/.qr`、代码路径 `~/QR/dev/qr`，然后执行 `qr init` 与 `qr schedule install`。`qr doctor` 会提示残留项。迁移确认无误后可归档或删除 `~/.kb`（你本机若仍剩 `~/.kb/kb.db`，属未清理的备份，不影响当前 `~/.qr` 运行）。
 
 ## 配置
 编辑 `~/.qr/config.json` 可调整索引目录、模型名、分块大小、排除目录等。

@@ -15,6 +15,21 @@ class TestProjectStandards(unittest.TestCase):
             self.assertIsNotNone(body)
             self.assertIn("## 用途", body or "")
 
+    def test_reject_global_content_in_project_md(self):
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td)
+            bad = (
+                "# 项目约定 · demo\n\n## 一、存储与目录规范\n\n"
+                "## 用途\nx\n\n## 技术栈与结构\n-\n\n"
+                "## 开发约定\n-\n\n## AI 协作（本项目）\n-\n"
+            )
+            with self.assertRaises(ValueError) as ctx:
+                project_standards.save_project_standards(
+                    d, bad, project_id="dev/demo", note="test"
+                )
+            self.assertIn("不混写", str(ctx.exception))
+            self.assertTrue(project_standards.mixed_standards_issues(bad))
+
     def test_generate_rules_splits_personal_and_project(self):
         with tempfile.TemporaryDirectory() as td:
             d = Path(td)
@@ -39,7 +54,7 @@ class TestProjectStandards(unittest.TestCase):
         )
         self.assertEqual(
             workspace.project_from_cursor_dir_name("Users-qr-QR-dev-project-sports"),
-            "dev/project-sports",
+            "dev/sports/project-sports",
         )
 
     def test_listable_workspace_only(self):
@@ -69,7 +84,7 @@ class TestProjectStandards(unittest.TestCase):
         self.assertIsNone(workspace.sanitize_display_project("Documents/EVE"))
         self.assertEqual(workspace.sanitize_display_project("dev/qr"), "dev/qr")
         self.assertEqual(workspace.sanitize_display_project("qr"), "dev/qr")
-        self.assertEqual(workspace.project_timeline_label("dev/project-sports"), "project-sports")
+        self.assertEqual(workspace.project_timeline_label("dev/sports/project-sports"), "project-sports")
 
     def test_event_row_visible(self):
         self.assertFalse(workspace.event_row_visible("file", "Documents/EVE"))

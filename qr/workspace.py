@@ -16,12 +16,17 @@ _DELETE_CONFIRM_PHRASE = "永久删除"
 # 工作区目录存在但不应出现在项目列表（导出镜像等）
 _LIST_EXCLUDE_IDS = frozenset({"dev/qr-export"})
 TARGET_QR = "dev/qr"
-TARGET_SPORTS = "dev/project-sports"
-# 历史单段 project → 规范 category/name
+TARGET_SPORTS = "dev/sports/project-sports"
+TARGET_RASPI = "dev/sports/Raspi"
+# 历史单段 / 旧路径 project → 规范 category/name
 LEGACY_PROJECT_ALIASES: dict[str, str] = {
     "qr": TARGET_QR,
     "sports": TARGET_SPORTS,
     "cursor-qr": TARGET_QR,
+    "dev/project-sports": TARGET_SPORTS,
+    "dev/Raspi": TARGET_RASPI,
+    "cursor-dev/project-sports": TARGET_SPORTS,
+    "cursor-dev/Raspi": TARGET_RASPI,
 }
 
 
@@ -87,7 +92,11 @@ def project_from_path(path: Path, root: Path | None = None) -> str:
     if not rel.parts:
         return root.name
     if len(rel.parts) >= 2:
-        return project_id(rel.parts[0], rel.parts[1])
+        if path.is_file() and len(rel.parts) > 2:
+            name = "/".join(rel.parts[1:-1])
+        else:
+            name = "/".join(rel.parts[1:])
+        return project_id(rel.parts[0], name)
     return slug_name(rel.parts[0])
 
 
@@ -96,6 +105,8 @@ def retrieval_fallback_project(path: Path) -> str:
     parts = [x for x in path.parts if x]
     if "QR" in parts:
         i = parts.index("QR")
+        if i + 3 < len(parts):
+            return project_id(parts[i + 1], "/".join(parts[i + 2:]))
         if i + 2 < len(parts):
             return project_id(parts[i + 1], parts[i + 2])
         if i + 1 < len(parts):
@@ -205,11 +216,13 @@ def canonical_project_id(project: str | None, cfg: dict[str, Any] | None = None)
 
 
 def project_timeline_label(project_id: str | None, cfg: dict[str, Any] | None = None) -> str | None:
-    """时间线标签：dev/qr → qr，dev/project-sports → project-sports。"""
+    """时间线标签：dev/qr → qr，dev/sports/project-sports → project-sports。"""
     canon = canonical_project_id(project_id, cfg)
     if not canon or not is_listable_project_id(canon, cfg):
         return None
     _, name = parse_project_id(canon)
+    if name and "/" in name:
+        return name.rsplit("/", 1)[-1]
     return name or canon
 
 
@@ -336,7 +349,54 @@ def _is_project_dir(d: Path) -> bool:
         names = {p.name for p in d.iterdir()}
     except OSError:
         return False
-    return bool(names & MARKERS) or (d / ".git").is_dir()
+    has_markers = bool(names & MARKERS) or (d / ".git").is_dir()
+    if not has_markers:
+        return False
+    # 分组目录（子目录含 .git）不算独立项目，如 dev/sports/
+    try:
+        for child in d.iterdir():
+            if child.is_dir() and not child.name.startswith(".") and (child / ".git").is_dir():
+                return False
+    except OSError:
+        pass
+    return True
+
+
+def _project_name_under_category(proj_dir: Path, cat_dir: Path) -> str:
+    return str(proj_dir.resolve().relative_to(cat_dir.resolve())).replace("\\", "/")
+
+
+def iter_category_project_dirs(
+    root: Path,
+    cat: str,
+) -> list[tuple[str, Path]]:
+    """列出分类下全部项目（支持 dev/sports/project-sports 等嵌套路径）。"""
+    cat_dir = root / cat
+    if not cat_dir.is_dir():
+        return []
+    found: list[tuple[str, Path]] = []
+
+    def walk(base: Path) -> None:
+        if _is_project_dir(base):
+            found.append((project_id(cat, _project_name_under_category(base, cat_dir)), base))
+            return
+        try:
+            children = [
+                c for c in base.iterdir()
+                if c.is_dir() and not c.name.startswith(".")
+            ]
+        except OSError:
+            return
+        if not children and base != cat_dir and _is_project_dir(base):
+            found.append((project_id(cat, _project_name_under_category(base, cat_dir)), base))
+            return
+        for child in sorted(children, key=lambda p: p.name.lower()):
+            walk(child)
+
+    for child in sorted(cat_dir.iterdir(), key=lambda p: p.name.lower()):
+        if child.is_dir() and not child.name.startswith("."):
+            walk(child)
+    return found
 
 
 def discover_outside_workspace(cfg: dict[str, Any] | None = None) -> list[Path]:
@@ -568,35 +628,47 @@ def _cursor_dir_slug(proj_dir: Path) -> str:
     return str(proj_dir.resolve()).replace("/", "-").lstrip("-")
 
 
+_LEGACY_CURSOR_SLUGS: dict[str, str] = {
+    "Users-qr-QR-dev-project-sports": TARGET_SPORTS,
+    "Users-qr-QR-dev-Raspi": TARGET_RASPI,
+}
+
+
 def project_from_cursor_dir_name(name: str, cfg: dict[str, Any] | None = None) -> str:
-    """Map ~/.cursor/projects/<slug> to workspace project_id (e.g. dev/project-sports)."""
+    """Map ~/.cursor/projects/<slug> to workspace project_id (e.g. dev/sports/project-sports)."""
     cfg = cfg or config.load_config()
     raw = (name or "").strip()
     if not raw:
         return ""
     nl = raw.lower()
+    legacy = _LEGACY_CURSOR_SLUGS.get(raw) or next(
+        (v for k, v in _LEGACY_CURSOR_SLUGS.items() if k.lower() == nl), None
+    )
+    if legacy:
+        return legacy
     root = workspace_root(cfg)
     root_slug = _cursor_dir_slug(root)
 
     for cat in categories(cfg):
-        cat_dir = root / cat
-        if not cat_dir.is_dir():
-            continue
-        for proj_dir in cat_dir.iterdir():
-            if not proj_dir.is_dir():
-                continue
+        for pid, proj_dir in iter_category_project_dirs(root, cat):
             slug = _cursor_dir_slug(proj_dir)
             if slug == raw or slug.lower() == nl:
-                return project_id(cat, proj_dir.name)
+                return pid
 
     if nl.startswith(root_slug.lower()):
         remainder = raw[len(root_slug) :].lstrip("-")
         for cat in categories(cfg):
             prefix = f"{cat}-"
             if remainder.lower().startswith(prefix.lower()):
-                proj_name = remainder[len(prefix) :]
-                if (root / cat / proj_name).is_dir():
-                    return project_id(cat, proj_name)
+                rel_name = remainder[len(prefix) :].replace("-", "/")
+                candidate = root / cat / rel_name
+                if candidate.is_dir():
+                    return project_id(cat, rel_name)
+                # slug 用连字符：dev-sports-project-sports
+                rel_slug = remainder[len(prefix) :]
+                for pid, proj_dir in iter_category_project_dirs(root, cat):
+                    if _cursor_dir_slug(proj_dir).lower().endswith(rel_slug.lower()):
+                        return pid
 
     leg_root = Path.home() / "Projects"
     if leg_root.is_dir():
@@ -1032,13 +1104,7 @@ def audit_projects(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
     workspace_items: list[dict[str, Any]] = []
     fs_ids: set[str] = set()
     for cat in categories(cfg):
-        cat_dir = root / cat
-        if not cat_dir.is_dir():
-            continue
-        for proj in cat_dir.iterdir():
-            if not proj.is_dir() or proj.name.startswith("."):
-                continue
-            pid = project_id(cat, proj.name)
+        for pid, proj in iter_category_project_dirs(root, cat):
             fs_ids.add(pid)
             workspace_items.append({
                 "id": pid,
@@ -1108,20 +1174,15 @@ def list_projects_grouped(limit: int = 200) -> dict[str, Any]:
     by_cat: dict[str, list[dict[str, Any]]] = {}
     flat: list[str] = []
     for cat in categories(cfg):
-        cat_dir = root / cat
-        if not cat_dir.is_dir():
-            continue
-        for proj in sorted(cat_dir.iterdir()):
-            if not proj.is_dir() or proj.name.startswith("."):
-                continue
-            pid = project_id(cat, proj.name)
+        for pid, proj in iter_category_project_dirs(root, cat):
             if not is_listable_project_id(pid, cfg):
                 continue
+            _, rel_name = parse_project_id(pid)
             flat.append(pid)
             by_cat.setdefault(cat, []).append(
                 {
                     "id": pid,
-                    "name": proj.name,
+                    "name": rel_name,
                     "category": cat,
                     "docs": doc_counts.get(pid, 0),
                 }

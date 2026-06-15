@@ -26,7 +26,7 @@ class TestRetrievalRelations(unittest.TestCase):
                         "VALUES (?,?,?,?,?,?,?,?,?,?)",
                         (
                             "dev/qr",
-                            "dev/project-sports",
+                            "dev/sports/project-sports",
                             "supports",
                             80,
                             "test",
@@ -39,13 +39,13 @@ class TestRetrievalRelations(unittest.TestCase):
                     )
                     conn.commit()
                     related = retrieval_relations.expand_projects("dev/qr")
-                self.assertEqual(related, ["dev/project-sports"])
+                self.assertEqual(related, ["dev/sports/project-sports"])
 
     def test_tag_related_hit_discount(self):
         h = retrieval_relations.tag_related_hit(
             {"score": 1.0, "scores": {"final": 1.0}},
             anchor="dev/qr",
-            related="dev/project-sports",
+            related="dev/sports/project-sports",
             discount=0.85,
         )
         self.assertTrue(h["relation_expanded"])
@@ -58,14 +58,14 @@ class TestRetrievalRelations(unittest.TestCase):
             calls.append(project)
             if project == "dev/qr":
                 return [{"path": "/QR/dev/qr/README.md", "score": 0.9, "text": "qr"}]
-            if project == "dev/project-sports":
-                return [{"path": "/QR/dev/project-sports/README.md", "score": 0.8, "text": "sports"}]
+            if project == "dev/sports/project-sports":
+                return [{"path": "/QR/dev/sports/project-sports/README.md", "score": 0.8, "text": "sports"}]
             return []
 
         with mock.patch.object(query, "_search_core", side_effect=fake_core), mock.patch.object(
             retrieval_relations,
             "expand_projects",
-            return_value=["dev/project-sports"],
+            return_value=["dev/sports/project-sports"],
         ), mock.patch.object(
             config,
             "load_config",
@@ -74,7 +74,7 @@ class TestRetrievalRelations(unittest.TestCase):
             hits = query.search("schedule install", k=4, project="dev/qr")
         self.assertTrue(any(h.get("relation_expanded") for h in hits))
         self.assertIn("dev/qr", calls)
-        self.assertIn("dev/project-sports", calls)
+        self.assertIn("dev/sports/project-sports", calls)
 
 
 if __name__ == "__main__":

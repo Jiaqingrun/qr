@@ -15,7 +15,7 @@ class TestCursorRetag(unittest.TestCase):
         )
         self.assertFalse(
             cursor_retag.is_sports_turn(
-                "下一关：在 Cursor 里真的用 ~/QR/dev/project-sports 开 workspace",
+                "下一关：在 Cursor 里真的用 ~/QR/dev/sports/project-sports 开 workspace",
             ),
         )
         self.assertFalse(

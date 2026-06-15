@@ -192,7 +192,7 @@ class TestFactsSync(unittest.TestCase):
         ):
             rows = facts.restore_report_facts()
         keys = {(r["key"], r.get("project")) for r in rows}
-        self.assertIn(("mvp_focus", "dev/project-sports"), keys)
+        self.assertIn(("mvp_focus", "dev/sports/project-sports"), keys)
         self.assertIn(("retrieval_upgrade_policy", "QR"), keys)
         self.assertIn(("cursor_workspace", "dev/scribe"), keys)
 

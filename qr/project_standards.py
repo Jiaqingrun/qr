@@ -13,7 +13,7 @@ PROJECT_RULE = "10-project.mdc"
 
 _TEMPLATE = """# 项目约定 · {name}
 
-> 本文件描述 **本项目** 的技术与协作约定；全局个人规范见 `qr standards` / `00-personal-standards.mdc`。
+> **分层、不混写**：全局个人规范见 `00-personal-standards.mdc`（勿在本文件重复 conda/Git/目录等全局条文）。
 > 编辑：`qr project standards --edit {pid}` · 从对话修订：`qr project standards-revise {pid}`
 
 ## 用途
@@ -35,17 +35,37 @@ _TEMPLATE = """# 项目约定 · {name}
 
 _PROJECT_REVISION_SYSTEM = (
     "你是项目级规范编辑助手。只输出该项目的 PROJECT.md 全文。"
-    "只写与本仓库相关的技术栈、目录、测试、业务规则；"
-    "不要重复全局目录/conda/Git 等个人习惯（那些由全局规范覆盖）。"
+    "**绝对不混写**：只写与本仓库相关的技术栈、目录、测试、业务规则与边界；"
+    "禁止重复全局规范中的 conda/Git/~/QR 目录/密钥存放/引导语前缀/QR Web 第六章等内容。"
     "不要写 QR 知识库 Web 界面改版、单次 bug 修复过程。"
     "保持章节：用途、技术栈与结构、开发约定、AI 协作（本项目）。"
     "用简体中文 Markdown，从「# 项目约定」标题开始，不要解释。"
 )
 
+# 出现在 PROJECT.md 中通常表示误粘贴了全局规范
+_GLOBAL_IN_PROJECT_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"^##\s*[一二三四五六]、", re.MULTILINE), "含全局规范章节标题（## 一、～六、）"),
+    (re.compile(r"个人开发\s*/\s*存储", re.I), "含全局规范标题措辞"),
+    (re.compile(r"~/.qr/standards", re.I), "含全局规范路径"),
+    (re.compile(r"所有代码项目统一放在", re.I), "含全局目录约定正文"),
+    (re.compile(r"界面与视觉规范（全局）", re.I), "含全局 UI 章节"),
+    (re.compile(r"qr\s+standards-revise", re.I), "含全局规范修订命令"),
+    (re.compile(r"qr\s+standards\s+--edit", re.I), "含全局规范编辑命令"),
+]
+
 _INVALID_PROJECT_LINE = re.compile(
     r"^##\s*[五六七八九十]、|个人开发\s*/\s*存储|~/.qr/standards",
     re.MULTILINE | re.IGNORECASE,
 )
+
+
+def mixed_standards_issues(text: str) -> list[str]:
+    """检测 PROJECT.md 是否混入全局规范条文。"""
+    issues: list[str] = []
+    for pat, label in _GLOBAL_IN_PROJECT_PATTERNS:
+        if pat.search(text):
+            issues.append(label)
+    return issues
 
 
 def project_md_path(project_dir: Path) -> Path:
@@ -87,6 +107,8 @@ def _is_valid_project_standards(text: str) -> bool:
         return False
     if _INVALID_PROJECT_LINE.search(text):
         return False
+    if mixed_standards_issues(text):
+        return False
     return True
 
 
@@ -98,6 +120,11 @@ def save_project_standards(
     note: str = "手动更新",
 ) -> bool:
     cleaned = _sanitize_project_output(content)
+    mixed = mixed_standards_issues(cleaned)
+    if mixed:
+        raise ValueError(
+            "项目规范不得混入全局条文（分层、不混写）：" + "；".join(mixed)
+        )
     if not _is_valid_project_standards(cleaned):
         raise ValueError("项目规范格式无效，已拒绝保存")
     path = project_md_path(project_dir)
@@ -199,6 +226,7 @@ def project_rule_mdc(body: str) -> str:
         "globs:\n  - \"**/*\"\n"
         "alwaysApply: true\n"
         "---\n\n"
-        "以下约定仅适用于本仓库；与全局个人规范冲突时，以**本项目**为准。\n\n"
+        "以下约定仅适用于本仓库（勿重复 00-personal-standards 中的全局条文）；"
+        "与全局冲突时以**本项目**为准。\n\n"
         f"{body.strip()}\n"
     )

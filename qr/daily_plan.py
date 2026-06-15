@@ -20,9 +20,9 @@ DEFAULT_ITEMS: list[dict[str, str]] = [
     },
     {
         "id": "monthly-eval",
-        "label": "每月 RAG + AI 评测",
-        "command": "qr eval monthly --save",
-        "hint": "每月初：检索基线 + 行为快照；对照 RETRIEVAL_UPGRADE_PLAN 触发条件",
+        "label": "每月模型评测",
+        "command": "qr eval run",
+        "hint": "全量双模型评测；写入 ~/.qr/logs/eval-YYYYMM.md（com.qr.eval 定时任务）",
         "cadence": "monthly",
     },
 ]

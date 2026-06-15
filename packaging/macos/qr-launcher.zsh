@@ -1,44 +1,25 @@
 #!/bin/zsh
-# QR本地知识库 启动器：确保 Web 服务可用后打开浏览器
+# QR本地知识库 启动器：Finder 双击时 PATH 不含 conda，须固定解析 qr 入口
 set -euo pipefail
 
-QR_BIN="$(command -v qr 2>/dev/null || true)"
-PORT=8765
-if [[ -f "$HOME/.qr/config.json" ]]; then
-  PORT="$(/usr/bin/python3 -c "
-import json
-from pathlib import Path
-p = Path.home() / '.qr' / 'config.json'
-print(json.loads(p.read_text()).get('web_port', 8765))
-" 2>/dev/null || echo 8765)"
-fi
-URL="http://127.0.0.1:${PORT}"
-mkdir -p "$HOME/.qr/logs"
+_CONDA_QR="/opt/anaconda3/envs/qr/bin/qr"
+_CONDA_PY="/opt/anaconda3/envs/qr/bin/python"
 
-_up() {
-  /usr/bin/curl -s -o /dev/null --max-time 2 "$URL/api/status"
-}
-
-if ! _up; then
-  UID_NUM="$(/usr/bin/id -u)"
-  LABEL="gui/${UID_NUM}/com.qr.web"
-  if /bin/launchctl print "$LABEL" &>/dev/null; then
-    /bin/launchctl kickstart -k "$LABEL" 2>/dev/null || true
-  elif [[ -n "$QR_BIN" && -x "$QR_BIN" ]]; then
-    /usr/bin/nohup "$QR_BIN" web --port "$PORT" >>"$HOME/.qr/logs/web.log" 2>&1 &
-  else
-    /usr/bin/osascript -e 'display alert "QR本地知识库未安装" message "找不到 qr 命令。请在终端执行：conda activate qr 后 pip install -e ~/QR/dev/qr，并运行 qr web --install"'
-    exit 1
+QR_ARGS=()
+if [[ -x "$_CONDA_QR" ]]; then
+  QR_ARGS=("$_CONDA_QR")
+elif [[ -x "$_CONDA_PY" ]]; then
+  QR_ARGS=("$_CONDA_PY" -m qr.cli)
+else
+  QR_BIN="$(command -v qr 2>/dev/null || true)"
+  if [[ -n "$QR_BIN" && -x "$QR_BIN" && "$QR_BIN" != *"/envs/kb/"* ]]; then
+    QR_ARGS=("$QR_BIN")
   fi
-  for _ in {1..40}; do
-    /bin/sleep 0.5
-    _up && break
-  done
 fi
 
-if ! _up; then
-  /usr/bin/osascript -e 'display alert "QR本地知识库启动失败" message "Web 服务未响应，请在终端运行：qr web --restart"'
+if [[ ${#QR_ARGS[@]} -eq 0 ]]; then
+  /usr/bin/osascript -e 'display alert "QR本地知识库未安装" message "找不到 qr 命令。请在终端执行：conda activate qr 后 pip install -e ~/QR/dev/qr，并运行 qr web --install"'
   exit 1
 fi
 
-/usr/bin/open "$URL"
+exec "${QR_ARGS[@]}" desktop --open

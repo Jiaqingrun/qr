@@ -223,7 +223,8 @@ qr prompts types
 **细节**  
 - 保存后导出 `~/.qr/prompts/<类型slug>/0001-标题.md`，参与笔记索引，可用 `qr ask` 检索  
 - 配置项（`~/.qr/config.json`）：`prompt_guides_auto_sync`、`prompt_guides_dir`  
-- 规范要求：高价值 Cursor 对话应合并为引导语，避免重复劳动（见 `standards/STANDARDS.md`）  
+- **侧栏对话标题前缀**（`前缀-主题`）：仅 **`执行-`** 自动进收件箱；**`参考-`** 只留时间线；无前缀或未知前缀暂不进，待改标题后再同步（见 `standards/STANDARDS.md`）  
+- 规范要求：高价值 **执行类** Cursor 对话应合并为引导语，避免重复劳动  
 
 ---
 

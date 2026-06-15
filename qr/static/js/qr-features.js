@@ -32,20 +32,19 @@
     el.textContent = '加载中…';
     try {
       const d = await api('/api/today');
+      renderInsightKpis(d);
       const lines = [
-        `活跃项目：${d.active_project || '—'}`,
-        `引导语收件箱：${d.inbox_count || 0}`,
-        `主动提醒：${(d.alerts || []).length}`,
-        '',
         '—— 接着干 ——',
         ...((d.resume?.actions) || []).map((a) => '· ' + a),
-        '',
-        '—— 今日洞察（摘要）——',
-        (d.digest_preview || '').slice(0, 500),
       ];
+      if (lines.length <= 1) lines.push('· 暂无建议');
+      const preview = (d.digest_preview || '').trim();
+      if (preview) {
+        lines.push('', '—— 洞察摘要（预览）——', preview.slice(0, 600));
+      }
       if ((d.alerts || []).length) {
-        lines.push('', '—— 提醒 ——');
-        d.alerts.slice(0, 5).forEach((a) => {
+        lines.push('', '—— 提醒摘要 ——');
+        d.alerts.slice(0, 4).forEach((a) => {
           lines.push(`[${a.level || 'info'}] ${a.message || ''}`);
         });
       }
@@ -55,8 +54,63 @@
     }
   }
 
+  function renderInsightKpis(d) {
+    const proj = document.querySelector('#insightKpiProject');
+    const inbox = document.querySelector('#insightKpiInbox');
+    const alerts = document.querySelector('#insightKpiAlerts');
+    const actions = document.querySelector('#insightKpiActions');
+    if (!proj) return;
+    proj.textContent = d.active_project || '—';
+    if (inbox) inbox.textContent = String(d.inbox_count ?? '—');
+    if (alerts) alerts.textContent = String((d.alerts || []).length);
+    const acts = (d.resume?.actions) || [];
+    if (actions) {
+      actions.textContent = acts.length
+        ? acts.slice(0, 2).join(' · ').slice(0, 48)
+        : '暂无建议';
+    }
+  }
+
+  function switchInsightTab(name) {
+    document.querySelectorAll('.insight-nav-btn').forEach((t) => {
+      const on = t.dataset.insightTab === name;
+      t.classList.toggle('active', on);
+      t.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    document.querySelectorAll('.insight-panel').forEach((p) => {
+      p.classList.toggle('active', p.dataset.insightPanel === name);
+    });
+  }
+
+  function initInsightTabs() {
+    document.querySelectorAll('.insight-nav-btn').forEach((btn) => {
+      btn.addEventListener('click', () => switchInsightTab(btn.dataset.insightTab || 'bench'));
+    });
+    const tabForBtn = {
+      digestBtn: 'digest',
+      digestNotifyBtn: 'digest',
+      factsInsightBtn: 'digest',
+      exportBtn: 'digest',
+      graphBtn: 'graph',
+      complianceBtn: 'quality',
+      evalRunBtn: 'quality',
+      evalBtn: 'quality',
+      evalHistoryBtn: 'quality',
+      evalRegBtn: 'quality',
+      evalFixBtn: 'quality',
+      evalPlanBtn: 'quality',
+      evalExecBtn: 'quality',
+      evalDecisionBtn: 'quality',
+    };
+    Object.entries(tabForBtn).forEach(([id, tab]) => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('click', () => switchInsightTab(tab), true);
+    });
+  }
+
+  window.switchInsightTab = switchInsightTab;
+
   async function copyPlanCommand(cmd, btn) {
-    const text = (cmd || '').trim();
     if (!text) return;
     try {
       if (navigator.clipboard?.writeText) {
@@ -160,13 +214,20 @@
       const r = await api('/api/alerts');
       const items = r.alerts || [];
       if (!items.length) {
-        el.textContent = '暂无主动提醒。';
+        el.textContent = '暂无主动提醒';
+        el.classList.add('is-empty');
+        const ak = document.querySelector('#insightKpiAlerts');
+        if (ak) ak.textContent = '0';
         return;
       }
+      el.classList.remove('is-empty');
+      const ak = document.querySelector('#insightKpiAlerts');
+      if (ak) ak.textContent = String(items.length);
       el.textContent = items
         .map((a) => `[${a.level || 'info'}] ${a.type || ''}: ${a.message || ''}`)
         .join('\n');
     } catch (e) {
+      el.classList.remove('is-empty');
       el.textContent = '加载失败：' + (e.message || e);
     }
   }
@@ -227,6 +288,7 @@
   document.querySelector('#projectChangelogBtn')?.addEventListener('click', loadProjectChangelog);
   document.querySelector('#todayRefreshBtn')?.addEventListener('click', loadTodayPanel);
   document.querySelector('#insightAlertsBtn')?.addEventListener('click', loadInsightAlerts);
+  initInsightTabs();
 
   const qBtn = document.querySelector('#qBtn');
   if (qBtn) qBtn.onclick = runQueryWithSymbol;

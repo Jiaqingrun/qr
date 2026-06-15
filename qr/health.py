@@ -261,12 +261,16 @@ def diagnose(conn: sqlite3.Connection | None = None) -> dict:
         from . import project_standards
 
         missing_proj: list[str] = []
+        mixed_proj: list[str] = []
         ws_projects = list(governance.iter_workspace_projects(cfg))
         for proj in ws_projects:
-            if not project_standards.read_project_standards(proj):
-                missing_proj.append(
-                    workspace.project_from_path(proj, workspace.workspace_root(cfg))
-                )
+            pid = workspace.project_from_path(proj, workspace.workspace_root(cfg))
+            body = project_standards.read_project_standards(proj)
+            if not body:
+                missing_proj.append(pid)
+                continue
+            if project_standards.mixed_standards_issues(body):
+                mixed_proj.append(pid)
         if missing_proj:
             sample = ", ".join(missing_proj[:5])
             more = f" 等 {len(missing_proj)} 个" if len(missing_proj) > 5 else ""
@@ -278,6 +282,15 @@ def diagnose(conn: sqlite3.Connection | None = None) -> dict:
             })
         elif ws_projects:
             ok_items.append("工作区项目均已具备 PROJECT.md")
+        if mixed_proj:
+            sample = ", ".join(mixed_proj[:5])
+            more = f" 等 {len(mixed_proj)} 个" if len(mixed_proj) > 5 else ""
+            issues.append({
+                "area": "standards",
+                "level": "warn",
+                "message": f"PROJECT.md 混入全局规范（应分层、不混写）：{sample}{more}",
+                "fix": "从 PROJECT.md 删除全局章节/条文，仅保留本项目约定；全局用 qr standards --edit",
+            })
 
         cfg_auto = config.load_config()
         if cfg_auto.get("standards_auto_revise", True):

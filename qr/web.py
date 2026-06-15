@@ -1939,6 +1939,7 @@ def api_eval_run():
         "message": "评测完成",
         "path": result.get("path"),
         "snapshot": result.get("snapshot"),
+        "markdown": result.get("markdown"),
         "stdout": result.get("stdout"),
     }
 
