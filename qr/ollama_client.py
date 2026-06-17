@@ -2,12 +2,60 @@ from __future__ import annotations
 
 import json
 import re
+import time
 
 import httpx
 
 from . import config, models
 
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
+_NAN_EMBED_MARKERS = ("NaN", "unsupported value", "invalid embedding")
+
+
+def _is_retriable_embed_error(err: str) -> bool:
+    low = err.lower()
+    return any(m.lower() in low for m in _NAN_EMBED_MARKERS) or "500" in err
+
+
+def _embed_error_message(err: str) -> str:
+    if _is_retriable_embed_error(err):
+        return (
+            f"embedding 调用失败: {err}。"
+            "常见于 Ollama 嵌入模型在 Flash Attention 下的数值溢出；"
+            "请重启 Ollama 并设置 OLLAMA_FLASH_ATTENTION=false（Homebrew: "
+            "launchctl setenv OLLAMA_FLASH_ATTENTION false && brew services restart ollama）。"
+        )
+    return f"embedding 调用失败: {err}"
+
+
+def _parse_embed_json(data: dict) -> list[float] | None:
+    embs = data.get("embeddings")
+    if embs:
+        return embs[0]
+    emb = data.get("embedding")
+    if emb:
+        return emb
+    return None
+
+
+def _embed_text_variants(text: str) -> list[str]:
+    """为易触发 NaN 的输入准备降级文本。"""
+    out: list[str] = []
+    seen: set[str] = set()
+
+    def add(s: str) -> None:
+        s = s.strip()
+        if s and s not in seen:
+            seen.add(s)
+            out.append(s)
+
+    add(text)
+    collapsed = " ".join(text.split())
+    add(collapsed)
+    for n in (3000, 2000, 1200, 600, 200):
+        if len(text) > n:
+            add(text[:n])
+    return out
 
 
 class OllamaError(RuntimeError):
@@ -26,43 +74,83 @@ class Ollama:
         self._client = httpx.Client(trust_env=False, timeout=600.0)
 
     def embed(self, text: str) -> list[float]:
-        emb = self._embed_via_api(text)
-        if not emb:
-            raise OllamaError("embedding 返回为空，确认 ollama 正在运行且已拉取嵌入模型")
-        if self.embed_dim and len(emb) != self.embed_dim:
-            raise OllamaError(
-                f"embedding 维度 {len(emb)} 与 config embed_dim {self.embed_dim} 不一致"
-            )
-        return emb
+        best_err: OllamaError | None = None
+        for variant in _embed_text_variants(text):
+            try:
+                emb = self._embed_via_api(variant)
+            except OllamaError as e:
+                best_err = e
+                continue
+            if not emb:
+                continue
+            if self.embed_dim and len(emb) != self.embed_dim:
+                raise OllamaError(
+                    f"embedding 维度 {len(emb)} 与 config embed_dim {self.embed_dim} 不一致"
+                )
+            return emb
+        if best_err:
+            raise best_err
+        raise OllamaError("embedding 返回为空，确认 ollama 正在运行且已拉取嵌入模型")
+
+    def _embed_variants_for(self, text: str) -> list[tuple[str, dict]]:
+        variants: list[tuple[str, dict]] = []
+        if self.embed_dim:
+            variants.append((
+                "/api/embed",
+                {
+                    "model": self.embed_model,
+                    "input": text,
+                    "dimensions": self.embed_dim,
+                },
+            ))
+        variants.append(("/api/embed", {"model": self.embed_model, "input": text}))
+        for prefix in ("passage: ", "text: "):
+            variants.append((
+                "/api/embed",
+                {"model": self.embed_model, "input": f"{prefix}{text}"},
+            ))
+        return variants
 
     def _embed_via_api(self, text: str) -> list[float] | None:
-        payload: dict = {"model": self.embed_model, "input": text}
-        if self.embed_dim:
-            payload["dimensions"] = self.embed_dim
+        variants = self._embed_variants_for(text)
+
+        last_err: OllamaError | None = None
+        for i, (endpoint, payload) in enumerate(variants):
+            try:
+                return self._embed_request(endpoint, payload)
+            except OllamaError as e:
+                last_err = e
+                if not _is_retriable_embed_error(str(e)):
+                    raise
+                if i < len(variants) - 1:
+                    time.sleep(0.25)
+        if last_err:
+            raise last_err
+        return None
+
+    def _embed_request(self, endpoint: str, payload: dict) -> list[float]:
         try:
             r = self._client.post(
-                f"{self.url}/api/embed", json=payload, timeout=120.0,
+                f"{self.url}{endpoint}", json=payload, timeout=120.0,
             )
-            r.raise_for_status()
-            data = r.json()
-            embs = data.get("embeddings")
-            if embs:
-                return embs[0]
-            emb = data.get("embedding")
-            if emb:
-                return emb
-        except httpx.HTTPError:
-            pass
-        try:
-            r = self._client.post(
-                f"{self.url}/api/embeddings",
-                json={"model": self.embed_model, "prompt": text},
-                timeout=120.0,
-            )
-            r.raise_for_status()
-            return r.json().get("embedding")
         except httpx.HTTPError as e:
-            raise OllamaError(f"embedding 调用失败: {e}") from e
+            raise OllamaError(_embed_error_message(str(e))) from e
+        if r.status_code >= 400:
+            try:
+                body = r.json()
+                err = body.get("error") or r.text
+            except json.JSONDecodeError:
+                err = r.text or f"HTTP {r.status_code}"
+            raise OllamaError(_embed_error_message(str(err)))
+        data = r.json()
+        emb = _parse_embed_json(data)
+        if not emb:
+            raise OllamaError("embedding 返回为空")
+        return emb
+
+    def probe_embed(self, text: str = "qr-health-probe") -> None:
+        """验证嵌入 API（不仅 /api/tags）。"""
+        self.embed(text)
 
     def generate(self, prompt: str, system: str | None = None,
                  model: str | None = None, strip_think: bool = True,

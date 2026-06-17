@@ -218,17 +218,39 @@ def diagnose(conn: sqlite3.Connection | None = None) -> dict:
         if any(scan_paths.is_home_root(r) for r in roots):
             ok_items.append("索引含主目录（已跳过 Library 等大目录）")
 
+        from . import ollama_runtime
+        from .ollama_client import Ollama, OllamaError, _is_retriable_embed_error
+
         try:
-            from .ollama_client import Ollama, OllamaError
-            Ollama().health()
-            ok_items.append("Ollama 可用")
+            if ollama_runtime.on_demand_enabled():
+                ok_items.append("Ollama 按需模式（提问时自动启动，结束后释放）")
+            else:
+                ol = Ollama()
+                ol.health()
+                try:
+                    ol.probe_embed()
+                    ok_items.append("Ollama 可用")
+                except OllamaError as e:
+                    fix = "启动 ollama 并拉取 config 中的 embed/chat 模型"
+                    if _is_retriable_embed_error(str(e)):
+                        fix = (
+                            "重启 Ollama 并设置 OLLAMA_FLASH_ATTENTION=false，"
+                            "然后 brew services restart ollama"
+                        )
+                    issues.append({
+                        "area": "ollama",
+                        "level": "error",
+                        "message": f"嵌入模型异常: {e}",
+                        "fix": fix,
+                    })
         except Exception as e:
-            issues.append({
-                "area": "ollama",
-                "level": "error",
-                "message": str(e),
-                "fix": "启动 ollama 并拉取 config 中的 embed/chat 模型",
-            })
+            if not ollama_runtime.on_demand_enabled():
+                issues.append({
+                    "area": "ollama",
+                    "level": "error",
+                    "message": str(e),
+                    "fix": "启动 ollama 并拉取 config 中的 embed/chat 模型",
+                })
 
         try:
             from . import prompt_guides
@@ -419,12 +441,18 @@ def status_dashboard(conn: sqlite3.Connection, *, use_cache: bool = True) -> dic
         proj_n = 0
 
     backend = "sqlite-vec" if db.vec_available() else "numpy"
+    from . import ollama_runtime
+
+    ollama_on_demand = ollama_runtime.on_demand_enabled()
     try:
-        ollama_tags = Ollama().health()
+        ol = Ollama()
+        ollama_tags = ol.health()
+        if not ollama_on_demand:
+            ol.probe_embed()
         ollama_ok = True
     except OllamaError:
         ollama_tags = []
-        ollama_ok = False
+        ollama_ok = ollama_on_demand
 
     sched = diag.get("schedule") or {}
     agents = sched.get("agents") or {}

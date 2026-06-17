@@ -153,13 +153,33 @@ def ensure_vec_table(conn: sqlite3.Connection) -> bool:
 
 def connect() -> sqlite3.Connection:
     config.ensure_dirs()
-    conn = sqlite3.connect(str(config.DB_PATH))
+    conn = sqlite3.connect(str(config.DB_PATH), timeout=30.0)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
-    conn.execute("PRAGMA busy_timeout=10000")
+    conn.execute("PRAGMA busy_timeout=60000")
     _load_vec(conn)
     return conn
+
+
+def run_db_retry(
+    fn,
+    *,
+    retries: int = 12,
+    delay: float = 0.35,
+):
+    """遇 database is locked 时退避重试。"""
+    last: sqlite3.OperationalError | None = None
+    for attempt in range(retries):
+        try:
+            return fn()
+        except sqlite3.OperationalError as e:
+            if "locked" not in str(e).lower():
+                raise
+            last = e
+            time.sleep(delay * (attempt + 1))
+    if last:
+        raise last
 
 
 def init_fts(conn: sqlite3.Connection) -> None:
@@ -308,11 +328,14 @@ def get_state(conn: sqlite3.Connection, key: str, default: str | None = None) ->
 
 
 def set_state(conn: sqlite3.Connection, key: str, value: str) -> None:
-    conn.execute(
-        "INSERT INTO state(key,value) VALUES(?,?) "
-        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-        (key, str(value)),
-    )
+    def _write() -> None:
+        conn.execute(
+            "INSERT INTO state(key,value) VALUES(?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (key, str(value)),
+        )
+
+    run_db_retry(_write)
 
 
 def _fts_sync_event(

@@ -25,7 +25,16 @@
     ) {
       o.headers = { ...(o.headers || {}), 'Content-Type': 'application/json' };
     }
-    const r = await fetch(p, o);
+    let r;
+    try {
+      r = await fetch(p, o);
+    } catch (e) {
+      const msg = String(e && e.message ? e.message : e);
+      if (/load failed|failed to fetch|networkerror/i.test(msg)) {
+        throw new Error('无法连接本机 Web 服务（请求超时或服务重启中），请稍候重试');
+      }
+      throw e;
+    }
     if (!r.ok) {
       let e;
       try {

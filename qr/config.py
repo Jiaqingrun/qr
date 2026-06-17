@@ -23,6 +23,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "ollama_url": "http://localhost:11434",
+    "ollama_on_demand": True,
+    "ollama_boot_timeout_seconds": 90,
+    "ollama_flash_attention": False,
     "embed_model": "qwen3-embedding:8b",
     "chat_model": "qwen2.5:72b",
     "deep_model": "deepseek-r1:32b",

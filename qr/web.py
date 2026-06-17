@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime
 import json
 import logging
+import sqlite3
 import subprocess
 import threading
 import time
@@ -53,6 +54,57 @@ app = FastAPI(title="QR本地知识库")
 app.mount("/assets", StaticFiles(directory=STATIC), name="assets")
 _log = logging.getLogger(__name__)
 _db_ready = threading.Event()
+_index_lock = threading.Lock()
+_index_job: dict[str, object] = {
+    "running": False,
+    "started_at": None,
+    "finished_at": None,
+    "stats": None,
+    "error": None,
+}
+
+
+def _run_index_background(
+    *,
+    reindex: bool,
+    incremental: bool,
+    since_days: float | None,
+    since_hours: float | None,
+) -> None:
+    try:
+        stats = indexer.index(
+            reindex=reindex,
+            incremental=incremental,
+            since_days=since_days,
+            since_hours=since_hours,
+        )
+        err = None
+    except OllamaError as e:
+        stats = None
+        err = str(e)
+    except sqlite3.OperationalError as e:
+        stats = None
+        err = (
+            "数据库正被其他任务占用（索引/采集/后台同步），请稍候再试。"
+            if "locked" in str(e).lower() else str(e)
+        )
+    except Exception as e:
+        stats = None
+        err = str(e)
+    with _index_lock:
+        _index_job["running"] = False
+        _index_job["finished_at"] = time.time()
+        _index_job["stats"] = stats
+        _index_job["error"] = err
+
+
+def _db_busy_response(exc: sqlite3.OperationalError) -> JSONResponse:
+    if "locked" in str(exc).lower():
+        return JSONResponse(
+            {"error": "数据库正被其他任务占用（索引/采集/后台同步），请稍候再试。"},
+            status_code=503,
+        )
+    return JSONResponse({"error": str(exc)}, status_code=500)
 
 
 @app.on_event("startup")
@@ -908,10 +960,13 @@ def api_log(body: LogBody):
 @app.post("/api/ingest")
 def api_ingest():
     db.init_db()
-    with db.session() as conn:
-        res = collectors.run(conn, ["shell", "git", "files", "cursor", "notes"])
-        deduped = notes.purge_cursor_duplicate_notes(conn)
-    return {"ingested": res, "notes_deduped": deduped}
+    try:
+        with db.session() as conn:
+            res = collectors.run(conn, ["shell", "git", "files", "cursor", "notes"])
+            deduped = notes.purge_cursor_duplicate_notes(conn)
+        return {"ingested": res, "notes_deduped": deduped}
+    except sqlite3.OperationalError as e:
+        return _db_busy_response(e)
 
 
 @app.post("/api/backfill")
@@ -926,31 +981,53 @@ def api_backfill(days: int = 365):
 @app.post("/api/ingest/cursor")
 def api_ingest_cursor(backfill: bool = False, days: int = 365):
     db.init_db()
-    with db.session() as conn:
-        if backfill:
-            res = backfill.run(conn, days=days, sources=["cursor"])
-            n = res.get("cursor", 0)
-        else:
-            from .collectors import cursor as cursor_col
-            n = cursor_col.collect(conn)
-    return {"ingested": n, "backfill": backfill, "days": days if backfill else None}
+    try:
+        with db.session() as conn:
+            if backfill:
+                res = backfill.run(conn, days=days, sources=["cursor"])
+                n = res.get("cursor", 0)
+            else:
+                from .collectors import cursor as cursor_col
+                n = cursor_col.collect(conn)
+        return {"ingested": n, "backfill": backfill, "days": days if backfill else None}
+    except sqlite3.OperationalError as e:
+        return _db_busy_response(e)
 
 
 @app.post("/api/index")
-def api_index(body: IndexBody | None = None):
+def api_index(
+    background_tasks: BackgroundTasks,
+    body: IndexBody | None = None,
+):
     db.init_db()
     req = body or IndexBody()
-    try:
-        return {
-            "stats": indexer.index(
-                reindex=req.reindex,
-                incremental=req.incremental,
-                since_days=req.since_days,
-                since_hours=req.since_hours,
-            ),
-        }
-    except OllamaError as e:
-        return JSONResponse({"error": str(e)}, status_code=502)
+    with _index_lock:
+        if _index_job.get("running"):
+            return JSONResponse(
+                {"error": "索引正在进行中，请稍候完成后再试"},
+                status_code=409,
+            )
+        _index_job.update({
+            "running": True,
+            "started_at": time.time(),
+            "finished_at": None,
+            "stats": None,
+            "error": None,
+        })
+    background_tasks.add_task(
+        _run_index_background,
+        reindex=req.reindex,
+        incremental=req.incremental,
+        since_days=req.since_days,
+        since_hours=req.since_hours,
+    )
+    return {"started": True, "running": True}
+
+
+@app.get("/api/index/status")
+def api_index_status():
+    with _index_lock:
+        return dict(_index_job)
 
 
 @app.get("/api/resume")

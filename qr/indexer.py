@@ -7,7 +7,7 @@ import sqlite3
 from pathlib import Path
 
 from . import config, db, scan_paths
-from .ollama_client import Ollama
+from .ollama_client import Ollama, OllamaError
 from .vectors import to_blob
 
 META_FILES: list[tuple[Path, str]] = [
@@ -95,8 +95,15 @@ def _index_document(
             (path_s, project, p.suffix.lower(), p.stat().st_mtime, h, len(chunks), db.now()),
         )
         doc_id = cur.lastrowid
+    conn.commit()
+
+    indexed = 0
     for i, ch in enumerate(chunks):
-        emb = ol.embed(ch)
+        try:
+            emb = ol.embed(ch)
+        except OllamaError:
+            stats["embed_failed"] = stats.get("embed_failed", 0) + 1
+            continue
         blob = to_blob(emb)
         cur = conn.execute(
             "INSERT INTO chunks(doc_id,ordinal,text,dim,embedding) VALUES(?,?,?,?,?)",
@@ -107,6 +114,13 @@ def _index_document(
                          (cur.lastrowid, blob))
         db.fts_index_chunk(conn, int(cur.lastrowid), path_s, project, ch)
         stats["chunks"] += 1
+        indexed += 1
+        conn.commit()
+    if indexed != len(chunks):
+        conn.execute(
+            "UPDATE documents SET n_chunks=? WHERE id=?",
+            (indexed, doc_id),
+        )
     from . import symbol_index
 
     if p.suffix.lower() in symbol_index._SYMBOL_EXTS:

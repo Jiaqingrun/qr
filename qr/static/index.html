@@ -2228,6 +2228,23 @@
 
 <script src="/assets/js/qr-core.js"></script>
 <script>
+async function runIndexJob(body, onTick) {
+  const started = await api('/api/index', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body || {}),
+  });
+  if (started.stats) return started.stats;
+  for (;;) {
+    await new Promise((res) => setTimeout(res, 2000));
+    const st = await api('/api/index/status');
+    if (typeof onTick === 'function') onTick(st);
+    if (!st.running) {
+      if (st.error) throw new Error(st.error);
+      return st.stats || {};
+    }
+  }
+}
 const PALETTE=['#6ea8fe','#7ee0a8','#ffb86b','#c9a0ff','#ff9ec0','#5ad1e0','#ffd86b','#a0e57e','#ff8fa3','#8fd3ff'];
 const PAGE={
   ask:{title:'问答',desc:'基于本地项目内容 · 两款问答模型（Qwen 72B / DeepSeek R1）'},
@@ -4397,7 +4414,10 @@ $('#indexBtn').onclick=async()=>{
   if(qrRunHas('index')) return;
   const b=$('#indexBtn');b.disabled=true;b.textContent='索引中…';
   qrRunStart({id:'index',label:'增量索引',group:'index'});
-  try{await api('/api/index',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reindex:false})});await loadStats()}catch(e){alert(e.message)}
+  try{
+    await runIndexJob({reindex:false,incremental:true},()=>{b.textContent='索引中…'});
+    await loadStats();
+  }catch(e){alert(e.message)}
   qrRunEnd('index');b.disabled=false;b.textContent='增量索引';
 };
 $('#reindexBtn').onclick=async()=>{
@@ -4405,10 +4425,19 @@ $('#reindexBtn').onclick=async()=>{
   if(qrRunHas('index-rebuild')) return;
   const b=$('#reindexBtn');b.disabled=true;b.textContent='重建中…';
   qrRunStart({id:'index-rebuild',label:'全量重建索引',group:'index'});
-  try{await api('/api/index',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reindex:true})});await loadStats()}catch(e){alert(e.message)}
+  try{
+    await runIndexJob({reindex:true},()=>{b.textContent='重建中…'});
+    await loadStats();
+  }catch(e){alert(e.message)}
   qrRunEnd('index-rebuild');b.disabled=false;b.textContent='全量重建';
 };
-$('#cursorIdxBtn').onclick=async()=>{try{await api('/api/ingest/cursor?backfill=false',{method:'POST'});await api('/api/index',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reindex:false})});alert('Cursor 对话已采集并索引')}catch(e){alert(e.message)}};
+$('#cursorIdxBtn').onclick=async()=>{
+  try{
+    await api('/api/ingest/cursor?backfill=false',{method:'POST'});
+    await runIndexJob({reindex:false,incremental:true});
+    alert('Cursor 对话已采集并索引');
+  }catch(e){alert(e.message)}
+};
 $('#decisionBtn').onclick=()=>{$('#noteInput').value='# 决策记录\n\n## 问题\n\n\n## 选项\n\n- \n\n## 结论\n\n\n## 原因\n\n';$('#noteInput').focus()};
 $('#noteBtn').onclick=async()=>{
   const v=$('#noteInput').value.trim();if(!v)return;

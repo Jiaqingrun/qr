@@ -7,6 +7,7 @@ import numpy as np
 
 from . import activity_context, chat, config, db, facts, hybrid, retrieval_boost, retrieval_meta, websearch
 from .ollama_client import Ollama
+from . import ollama_runtime
 from .vectors import cosine_topk, from_blob, to_blob
 
 _REFUSE = (
@@ -544,11 +545,15 @@ def ask(
     project: str | None = None,
     category: str | None = None,
 ) -> tuple[str, list[dict], list[dict]]:
-    ctx = prepare_ask(question, k, model, web, history, project, category=category)
-    if ctx["early_answer"]:
-        return ctx["early_answer"], ctx["hits"], ctx["web_results"]
-    answer = Ollama().generate(ctx["prompt"], system=ctx["system"], model=model)
-    return answer, ctx["hits"], ctx["web_results"]
+    ollama_runtime.session_begin()
+    try:
+        ctx = prepare_ask(question, k, model, web, history, project, category=category)
+        if ctx["early_answer"]:
+            return ctx["early_answer"], ctx["hits"], ctx["web_results"]
+        answer = Ollama().generate(ctx["prompt"], system=ctx["system"], model=model)
+        return answer, ctx["hits"], ctx["web_results"]
+    finally:
+        ollama_runtime.session_end()
 
 
 def ask_stream(
@@ -560,23 +565,30 @@ def ask_stream(
     project: str | None = None,
     category: str | None = None,
 ) -> Iterator[dict]:
-    yield {"type": "status", "text": "正在检索本地上下文…"}
-    ctx = prepare_ask(question, k, model, web, history, project, category=category)
-    yield {
-        "type": "meta",
-        "hits": ctx["hits"],
-        "web": ctx["web_results"],
-        "similar": ctx["similar"],
-    }
-    if ctx["early_answer"]:
+    boot = ollama_runtime.needs_boot()
+    if boot:
+        yield {"type": "status", "text": "正在启动 Ollama…"}
+    ollama_runtime.session_begin()
+    try:
+        yield {"type": "status", "text": "正在检索本地上下文…"}
+        ctx = prepare_ask(question, k, model, web, history, project, category=category)
+        yield {
+            "type": "meta",
+            "hits": ctx["hits"],
+            "web": ctx["web_results"],
+            "similar": ctx["similar"],
+        }
+        if ctx["early_answer"]:
+            yield {"type": "status", "text": "正在生成回答…"}
+            yield {"type": "token", "text": ctx["early_answer"]}
+            yield {"type": "done", "answer": ctx["early_answer"]}
+            return
         yield {"type": "status", "text": "正在生成回答…"}
-        yield {"type": "token", "text": ctx["early_answer"]}
-        yield {"type": "done", "answer": ctx["early_answer"]}
-        return
-    yield {"type": "status", "text": "正在生成回答…"}
-    buf: list[str] = []
-    for token in Ollama().generate_stream(ctx["prompt"], system=ctx["system"], model=model):
-        buf.append(token)
-        yield {"type": "token", "text": token}
-    answer = "".join(buf)
-    yield {"type": "done", "answer": answer}
+        buf: list[str] = []
+        for token in Ollama().generate_stream(ctx["prompt"], system=ctx["system"], model=model):
+            buf.append(token)
+            yield {"type": "token", "text": token}
+        answer = "".join(buf)
+        yield {"type": "done", "answer": answer}
+    finally:
+        ollama_runtime.session_end()
