@@ -1533,9 +1533,14 @@ def api_prompts_fragments_delete(body: PromptFragmentsDeleteBody):
     if not body.fragment_ids:
         return JSONResponse({"error": "fragment_ids 为空"}, status_code=400)
     db.init_db()
-    with db.session() as conn:
-        result = prompt_guides.delete_fragments(conn, body.fragment_ids)
-        return {"ok": True, **result}
+    try:
+        with db.write_session() as conn:
+            result = prompt_guides.delete_fragments(conn, body.fragment_ids)
+    except sqlite3.OperationalError as e:
+        if "locked" in str(e).lower():
+            return JSONResponse({"error": "数据库繁忙，请稍后重试"}, status_code=503)
+        raise
+    return {"ok": True, **result}
 
 
 @app.post("/api/prompts/sessions/delete")
@@ -1543,9 +1548,14 @@ def api_prompts_sessions_delete(body: PromptSessionsDeleteBody):
     if not body.session_ids:
         return JSONResponse({"error": "session_ids 为空"}, status_code=400)
     db.init_db()
-    with db.session() as conn:
-        result = prompt_guides.delete_cursor_sessions(conn, body.session_ids)
-        return {"ok": True, **result}
+    try:
+        with db.write_session() as conn:
+            result = prompt_guides.delete_cursor_sessions(conn, body.session_ids)
+    except sqlite3.OperationalError as e:
+        if "locked" in str(e).lower():
+            return JSONResponse({"error": "数据库繁忙，请稍后重试"}, status_code=503)
+        raise
+    return {"ok": True, **result}
 
 
 @app.patch("/api/prompts/fragments/{fid}")

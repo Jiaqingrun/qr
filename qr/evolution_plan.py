@@ -23,7 +23,6 @@ _SPORTS_PROJECT_IDS = (
 )
 _SPORTS_POLICY_PATHS = (
     config.REPO_ROOT.parent / "sports" / "project-sports" / "docs" / "hebei-policy.md",
-    config.REPO_ROOT.parent / "project-sports" / "docs" / "hebei-policy.md",
 )
 
 

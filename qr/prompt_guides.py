@@ -88,9 +88,25 @@ def _is_dismissed(conn: sqlite3.Connection, event_uid: str) -> bool:
 
 
 def _dismiss_events(conn: sqlite3.Connection, event_uids: list[str]) -> None:
-    for uid in event_uids:
-        if uid:
-            db.set_state(conn, _dismiss_key(uid), "1")
+    rows = [(_dismiss_key(uid), "1") for uid in event_uids if uid]
+    if not rows:
+        return
+    conn.executemany(
+        "INSERT INTO state(key,value) VALUES(?,?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        rows,
+    )
+
+
+def _shield_states(conn: sqlite3.Connection, keys: list[str]) -> None:
+    rows = [(k, "1") for k in keys if k]
+    if not rows:
+        return
+    conn.executemany(
+        "INSERT INTO state(key,value) VALUES(?,?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        rows,
+    )
 
 
 def _session_dismiss_key(session_id: str) -> str:
@@ -107,7 +123,7 @@ def is_session_dismissed(conn: sqlite3.Connection, session_id: str) -> bool:
 def _shield_session(conn: sqlite3.Connection, session_id: str) -> None:
     sid = (session_id or "").strip()
     if sid and sid != "unknown":
-        db.set_state(conn, _session_dismiss_key(sid), "1")
+        _shield_states(conn, [_session_dismiss_key(sid)])
 
 
 def _shield_event_uids(conn: sqlite3.Connection, event_uids: list[str]) -> int:
@@ -115,10 +131,15 @@ def _shield_event_uids(conn: sqlite3.Connection, event_uids: list[str]) -> int:
     uids = [str(u) for u in event_uids if u]
     if not uids:
         return 0
+    from . import timeline_search
+
     _dismiss_events(conn, uids)
     ph = ",".join("?" * len(uids))
     cur = conn.execute(f"DELETE FROM events WHERE uid IN ({ph})", uids)
-    return int(cur.rowcount)
+    removed = int(cur.rowcount)
+    for uid in uids:
+        timeline_search.remove_event(conn, uid)
+    return removed
 
 DEFAULT_TYPES: list[dict[str, str]] = [
     {"name": "功能开发", "slug": "feature", "description": "实现新功能、加接口、写业务逻辑"},
@@ -199,6 +220,7 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_pgf_inbox ON prompt_guide_fragments(guide_id);
         CREATE INDEX IF NOT EXISTS idx_pgf_ts ON prompt_guide_fragments(ts);
+        CREATE INDEX IF NOT EXISTS idx_pgf_session ON prompt_guide_fragments(cursor_session_id);
         """
     )
     db._ensure_column(conn, "prompt_guide_fragments", "cursor_session_id", "TEXT")
@@ -1013,7 +1035,6 @@ def delete_cursor_sessions(conn: sqlite3.Connection, session_ids: list[str]) -> 
                 dismiss_uids.append(uid)
         stats["events"] += _shield_event_uids(conn, dismiss_uids)
 
-    conn.commit()
     cpt.clear_transcript_cache()
     return stats
 
@@ -1048,7 +1069,6 @@ def delete_fragments(conn: sqlite3.Connection, fragment_ids: list[int]) -> dict[
         )
         deleted = len(to_delete)
         events_removed = _shield_event_uids(conn, dismiss_uids)
-    conn.commit()
     return {"deleted": deleted, "skipped": skipped, "events": events_removed}
 
 
@@ -1059,7 +1079,6 @@ def delete_guide(conn: sqlite3.Connection, guide_id: int) -> None:
         (ORIGIN_AUTO, guide_id),
     )
     conn.execute("DELETE FROM prompt_guides WHERE id=?", (guide_id,))
-    conn.commit()
 
 
 def _fragment_session_title(

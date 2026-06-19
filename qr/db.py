@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import sqlite3
 import time
 from contextlib import contextmanager
@@ -318,6 +319,23 @@ def session() -> Iterator[sqlite3.Connection]:
     try:
         yield conn
         conn.commit()
+    finally:
+        conn.close()
+
+
+@contextmanager
+def write_session(*, busy_ms: int = 8000) -> Iterator[sqlite3.Connection]:
+    """短超时写事务，避免 Web 屏蔽/删除在库锁竞争时长时间挂起。"""
+    conn = connect()
+    conn.execute(f"PRAGMA busy_timeout={int(busy_ms)}")
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        yield conn
+        conn.commit()
+    except Exception:
+        with contextlib.suppress(Exception):
+            conn.rollback()
+        raise
     finally:
         conn.close()
 

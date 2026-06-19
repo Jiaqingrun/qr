@@ -926,17 +926,6 @@
   .pg-sidebar{
     display:flex;flex-direction:column;gap:var(--split-gap);min-width:0;min-height:0;height:100%;overflow:hidden;
   }
-  .pg-sess-row{
-    display:flex;gap:8px;align-items:flex-start;padding:10px 12px;border:1px solid var(--border);
-    border-radius:var(--r-sm);background:var(--bg2);cursor:pointer;font-size:12px;min-width:0;
-  }
-  .pg-sess-row:hover{border-color:rgba(110,168,254,.35)}
-  .pg-sess-row.off{opacity:.45}
-  .pg-sess-row input{accent-color:var(--blue);margin-top:2px}
-  .pg-sess-body{flex:1;min-width:0;overflow:hidden}
-  .pg-group-head{flex:1;min-width:0;overflow:hidden}
-  .pg-sess-title{font-weight:600;font-size:13px;color:var(--text);line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word}
-  .pg-sess-meta{color:var(--muted);margin-top:4px;font-variant-numeric:tabular-nums}
   .pg-badge.estimated{background:rgba(255,184,107,.12);color:var(--amber);border:1px solid rgba(255,184,107,.35)}
   .pg-badge.exact{background:rgba(126,224,168,.12);color:var(--mint);border:1px solid rgba(126,224,168,.35)}
   .pg-inbox-panel{display:flex;flex-direction:column;flex:1;min-height:0;overflow:hidden;margin:0}
@@ -956,7 +945,6 @@
     font-size:12px;color:var(--muted);background:var(--bg1);
     border:1px solid var(--border);border-radius:var(--r-sm);
   }
-  .pg-sess-row.is-on{border-color:rgba(110,168,254,.45);background:rgba(110,168,254,.06)}
   section.pg-block{
     border:1px solid var(--border);border-radius:var(--r-sm);margin-bottom:14px;
     background:var(--bg2);overflow:hidden;
@@ -998,7 +986,6 @@
     color:var(--blue);font-size:12px;cursor:pointer;text-decoration:underline;
   }
   .pg-frag-more:hover{color:var(--mint)}
-  .pg-sess-row input{flex-shrink:0;accent-color:var(--blue)}
   .pg-guides{display:flex;flex-direction:column;gap:8px}
   .pg-guides-panel{
     display:flex;flex-direction:column;flex:1;min-height:0;overflow:hidden;margin:0;
@@ -2175,6 +2162,18 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="pgShieldModal" role="dialog" aria-modal="true" aria-labelledby="pgShieldTitle">
+  <div class="modal-card">
+    <h3 id="pgShieldTitle">屏蔽对话</h3>
+    <pre class="modal-pre" id="pgShieldModalText"></pre>
+    <p class="modal-status" id="pgShieldModalStatus" hidden></p>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-ghost btn-sm" id="pgShieldCancelBtn">取消</button>
+      <button type="button" class="btn btn-sm" id="pgShieldSubmitBtn" style="background:rgba(255,120,140,.15);color:var(--rose);border-color:rgba(255,120,140,.4)">确认屏蔽</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="pgGuideModal" role="dialog" aria-modal="true" aria-labelledby="pgGuideModalTitle">
   <div class="modal-card modal-card--wide modal-card--pg">
     <div class="pg-guide-modal-head">
@@ -2495,6 +2494,7 @@ const pgState={
   groups:[],
   expandedFrags:new Set(),
   inboxEventsBound:false,
+  shieldPendingSid:'',
   guideModalTurns:[],
   guideModalTurnIdx:-1,
 };
@@ -2537,21 +2537,93 @@ function pgDeleteSessionConfirmMsg(n){
     `已合并进引导语的文本仍保留。是否继续？`;
 }
 
+function setPgShieldStatus(msg,kind){
+  const el=$('#pgShieldModalStatus');
+  if(!el) return;
+  if(!msg){el.textContent='';el.hidden=true;el.className='modal-status';return;}
+  el.textContent=msg;
+  el.hidden=false;
+  el.className='modal-status'+(kind==='err'?' err':kind==='ok'?' ok':kind==='busy'?' busy':'');
+}
+
+function openPgShieldModal(sid,title){
+  pgState.shieldPendingSid=String(sid||'').trim();
+  if(!pgState.shieldPendingSid){
+    const hint=$('#pgInboxSelHint');
+    if(hint) hint.textContent='无法识别对话 ID，请刷新后重试';
+    return;
+  }
+  const lines=[pgDeleteSessionConfirmMsg(1)];
+  if(title) lines.push('', `对话：${title}`);
+  $('#pgShieldModalText').textContent=lines.join('\n');
+  setPgShieldStatus('','');
+  const submit=$('#pgShieldSubmitBtn');
+  const cancel=$('#pgShieldCancelBtn');
+  if(submit){submit.disabled=false;submit.textContent='确认屏蔽'}
+  if(cancel) cancel.disabled=false;
+  $('#pgShieldModal')?.classList.add('show');
+}
+
+function closePgShieldModal(){
+  pgState.shieldPendingSid='';
+  setPgShieldStatus('','');
+  $('#pgShieldModal')?.classList.remove('show');
+}
+
 async function pgDeleteSession(sid){
-  if(!sid) return;
-  if(!confirm(pgDeleteSessionConfirmMsg(1))) return;
+  const id=String(sid||pgState.shieldPendingSid||'').trim();
+  if(!id){
+    setPgShieldStatus('缺少对话 ID','err');
+    return;
+  }
+  const submit=$('#pgShieldSubmitBtn');
+  const cancel=$('#pgShieldCancelBtn');
+  if(submit){submit.disabled=true;submit.textContent='屏蔽中…'}
+  if(cancel) cancel.disabled=true;
+  setPgShieldStatus('正在屏蔽…','busy');
+  const ctrl=new AbortController();
+  const timer=setTimeout(()=>ctrl.abort(),20000);
   try{
-    const r=await api('/api/prompts/sessions/delete',{
+    const r=await fetch('/api/prompts/sessions/delete',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({session_ids:[sid]}),
+      body:JSON.stringify({session_ids:[id]}),
+      signal:ctrl.signal,
     });
+    clearTimeout(timer);
+    if(!r.ok){
+      let msg=r.statusText;
+      try{ const j=await r.json(); msg=j.error||j.detail||msg; }catch(_){}
+      throw new Error(msg||'屏蔽失败');
+    }
+    const data=await r.json();
     pgState.selected.clear();
-    let info=`已屏蔽 ${r.sessions||0} 场 · 片段 ${r.fragments||0} · 时间线 ${r.events||0}`;
-    alert(info);
+    const info=`已屏蔽 ${data.sessions||0} 场 · 片段 ${data.fragments||0} · 时间线 ${data.events||0}`;
+    closePgShieldModal();
+    const hint=$('#pgInboxSelHint');
+    if(hint) hint.textContent=info;
     loadPrompts();
-  }catch(e){alert(e.message)}
+  }catch(e){
+    clearTimeout(timer);
+    const msg=e.name==='AbortError'
+      ? '屏蔽超时（数据库繁忙）。请稍后重试，或先暂停自动收录再试。'
+      : (e.message||'屏蔽失败');
+    setPgShieldStatus(msg,'err');
+    if(submit){submit.disabled=false;submit.textContent='确认屏蔽'}
+    if(cancel) cancel.disabled=false;
+  }
 }
+
+function bindPgShieldModal(){
+  const modal=$('#pgShieldModal');
+  $('#pgShieldCancelBtn')?.addEventListener('click',closePgShieldModal);
+  $('#pgShieldSubmitBtn')?.addEventListener('click',()=>{ void pgDeleteSession(); });
+  modal?.addEventListener('click',e=>{ if(e.target===modal) closePgShieldModal(); });
+  document.addEventListener('keydown',e=>{
+    if(e.key==='Escape'&&modal?.classList.contains('show')) closePgShieldModal();
+  });
+}
+bindPgShieldModal();
 
 function pgFmtTs(ts, withSec){
   const n=Number(ts);
@@ -2664,6 +2736,15 @@ function bindPgInboxEvents(){
     }
   });
   el.addEventListener('click',e=>{
+    const delBtn=e.target.closest('.pg-sess-del');
+    if(delBtn){
+      e.preventDefault();
+      e.stopPropagation();
+      const sid=delBtn.dataset.sid||delBtn.getAttribute('data-sid')||'';
+      const title=delBtn.closest('section.pg-block')?.querySelector('.pg-block-title')?.textContent?.trim()||'';
+      openPgShieldModal(sid,title);
+      return;
+    }
     if(e.target.classList.contains('pg-frag-more')){
       e.preventDefault();
       e.stopPropagation();
@@ -2742,12 +2823,6 @@ function renderPgInboxGroups(){
     }
     const sid=chk.dataset.sid;
     if(sid) pgSyncGroupCheckbox(sid);
-  });
-  el.querySelectorAll('.pg-sess-del').forEach(btn=>{
-    btn.onclick=e=>{
-      e.stopPropagation();
-      void pgDeleteSession(btn.dataset.sid);
-    };
   });
   pgUpdateSelHint();
 }
