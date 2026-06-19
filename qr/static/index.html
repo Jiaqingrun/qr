@@ -3657,7 +3657,7 @@ async function loadAskModels(){
 function selectedAskModel(){
   const v=$('#askModel')?.value;
   if(v) return v;
-  return askModelCatalog.default||'qwen2.5:72b';
+  return askModelCatalog.default||'qwen2.5:32b';
 }
 let askCtxTimer=null;
 
@@ -3878,7 +3878,11 @@ async function submitAsk(){
   try{
     const body={question:q,k:6,model,web,stream:true,project,category};
     if(askState.sessionId) body.session_id=askState.sessionId;
-    const resp=await fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const resp=await fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).catch(e=>{
+      const msg=String(e&&e.message?e.message:e);
+      if(/load failed|failed to fetch|networkerror/i.test(msg)) throw new Error('无法连接本机 Web 服务（请求超时或数据库繁忙），请稍候重试');
+      throw e;
+    });
     if(!resp.ok){const e=await resp.json().catch(()=>({}));throw new Error(e.error||resp.statusText)}
     const reader=resp.body.getReader();
     const dec=new TextDecoder();

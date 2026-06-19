@@ -689,25 +689,29 @@ def _finish_ask(
     *,
     model: str,
 ):
-    with db.session() as conn:
-        chat.update_session_model(conn, sid, model)
-        chat.add_user_message(conn, sid, body.question.strip())
-        msg_id = chat.add_assistant_message(
-            conn, sid, answer, hits=hits or None, web=web_results or None,
-        )
-        chat.touch_session(conn, sid)
-        session = chat.get_session(conn, sid)
-        history_after = chat.history_for_prompt(conn, sid)
-        last_hits, last_web = hits, web_results
-        ctx = context_meter.estimate_ask_context(
-            history=history_after,
-            question=body.question.strip(),
-            k=body.k,
-            web=body.web,
-            model=model,
-            hits=last_hits,
-            web_results=last_web,
-        )
+    def _persist() -> dict:
+        with db.write_session(busy_ms=8000) as conn:
+            chat.update_session_model(conn, sid, model)
+            chat.add_user_message(conn, sid, body.question.strip())
+            msg_id = chat.add_assistant_message(
+                conn, sid, answer, hits=hits or None, web=web_results or None,
+            )
+            chat.touch_session(conn, sid)
+            session = chat.get_session(conn, sid)
+            history_after = chat.history_for_prompt(conn, sid)
+            last_hits, last_web = hits, web_results
+            ctx = context_meter.estimate_ask_context(
+                history=history_after,
+                question=body.question.strip(),
+                k=body.k,
+                web=body.web,
+                model=model,
+                hits=last_hits,
+                web_results=last_web,
+            )
+            return msg_id, session, ctx
+
+    msg_id, session, ctx = db.run_db_retry(_persist)
     similar = chat.find_similar_questions(body.question.strip())
     if query._is_qr_query(body.question.strip()):
         facts.extract_from_text(answer, project=body.project or "QR")
@@ -740,21 +744,34 @@ def api_ask(body: AskBody):
     history = None
     sid = body.session_id
     session_row = None
-    with db.session() as conn:
+    try:
         if sid:
-            session_row = chat.get_session(conn, sid)
+            def _load_session() -> tuple[dict | None, list | None]:
+                with db.session() as conn:
+                    row = chat.get_session(conn, sid)
+                    if row is None:
+                        return None, None
+                    return row, chat.history_for_prompt(conn, sid)
+
+            session_row, history = db.run_db_retry(_load_session)
             if session_row is None:
                 return JSONResponse({"error": "对话不存在"}, status_code=404)
-            history = chat.history_for_prompt(conn, sid)
         else:
             try:
                 resolved = models.resolve_ask_model(body.model, deep_legacy=body.deep)
             except ValueError as e:
                 return JSONResponse({"error": str(e)}, status_code=400)
-            sid = chat.create_session(
-                conn, title=question, model=resolved, web=body.web,
-            )
-            session_row = chat.get_session(conn, sid)
+
+            def _create_session() -> tuple[int, dict]:
+                with db.write_session(busy_ms=8000) as conn:
+                    new_sid = chat.create_session(
+                        conn, title=question, model=resolved, web=body.web,
+                    )
+                    return new_sid, chat.get_session(conn, new_sid)
+
+            sid, session_row = db.run_db_retry(_create_session)
+    except sqlite3.OperationalError as e:
+        return _db_busy_response(e)
 
     try:
         model = models.resolve_ask_model(
@@ -792,6 +809,12 @@ def api_ask(body: AskBody):
                         yield f"data: {_json.dumps({'type': 'done', **payload}, ensure_ascii=False)}\n\n"
             except OllamaError as e:
                 yield f"data: {_json.dumps({'type': 'error', 'error': str(e)}, ensure_ascii=False)}\n\n"
+            except sqlite3.OperationalError as e:
+                msg = (
+                    "数据库正被其他任务占用（索引/采集/后台同步），请稍候再试。"
+                    if "locked" in str(e).lower() else str(e)
+                )
+                yield f"data: {_json.dumps({'type': 'error', 'error': msg}, ensure_ascii=False)}\n\n"
 
         return StreamingResponse(
             gen(),
@@ -806,7 +829,12 @@ def api_ask(body: AskBody):
         )
     except OllamaError as e:
         return JSONResponse({"error": str(e)}, status_code=502)
-    return _finish_ask(body, answer, hits, web_results, sid, model=model)
+    except sqlite3.OperationalError as e:
+        return _db_busy_response(e)
+    try:
+        return _finish_ask(body, answer, hits, web_results, sid, model=model)
+    except sqlite3.OperationalError as e:
+        return _db_busy_response(e)
 
 
 @app.get("/api/chats")

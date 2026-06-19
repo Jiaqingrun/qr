@@ -5,11 +5,17 @@ from . import config
 # 问答可选模型（与 config.ask_models 合并，以 config 为准）
 _DEFAULT_ASK_MODELS: list[dict] = [
     {
-        "id": "qwen2.5:72b",
-        "label": "Qwen 2.5 · 72B",
+        "id": "qwen2.5:32b",
+        "label": "Qwen 2.5 · 32B",
         "hint": "默认推荐，日常查阅与总结",
         "reasoning": False,
         "default": True,
+    },
+    {
+        "id": "qwen2.5:72b",
+        "label": "Qwen 2.5 · 72B",
+        "hint": "更强综合，适合长文归纳",
+        "reasoning": False,
     },
     {
         "id": "deepseek-r1:32b",
