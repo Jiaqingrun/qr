@@ -39,7 +39,6 @@ pip install -e ~/QR/dev/qr
 qr init
 ```
 
-> **旧版 kb 用户**：若仍使用 conda 环境 `kb` 或 `~/.kb`，请改用 `qr` / `~/.qr` 后执行 `qr init` 与 `qr schedule install`。
 
 ## 常用命令
 ```bash
@@ -92,7 +91,6 @@ qr index --reindex        # 迁移后重建索引（project 变为 dev/qr 形式
 - 运行数据：`~/.qr`（`qr.db`、`config.json`、`standards.md`、`facts.json`、`summaries/`、`notes/`、`backups/`）
 - 路径与职责的**规范条文**见 `standards/STANDARDS.md`（生效副本：`~/.qr/standards.md`）
 
-`qr init` 会在检测到 `~/.kb` 时自动把缺失项迁入 `~/.qr`（不覆盖已有 `qr.db`）。
 
 ## 配置
 编辑 `~/.qr/config.json` 可调整索引目录、模型名、分块大小、排除目录等。
