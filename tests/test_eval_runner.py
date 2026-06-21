@@ -45,7 +45,7 @@ class TestEvalRunner(unittest.TestCase):
             logs = Path(td) / "logs"
             logs.mkdir()
             data = {
-                "chat_model": "qwen2.5:72b",
+                "chat_model": "qwen2.5:32b",
                 "deep_model": "deepseek-r1:32b",
                 "rag_summary": {
                     "cases": 2,
@@ -60,7 +60,7 @@ class TestEvalRunner(unittest.TestCase):
                         {
                             "case": "port",
                             "tier": "core",
-                            "model": "qwen2.5:72b",
+                            "model": "qwen2.5:32b",
                             "must_pass": True,
                             "retrieval_ok": True,
                             "ask_s": 1.2,
@@ -72,7 +72,7 @@ class TestEvalRunner(unittest.TestCase):
                 md = eval_runner.render_eval_markdown(data, generated_ts=1717200000)
                 path = eval_runner.write_eval_log_markdown(data, generated_ts=1717200000)
             self.assertIn("2024-06", md)
-            self.assertIn("qwen2.5:72b", md)
+            self.assertIn("qwen2.5:32b", md)
             self.assertEqual(path.name, "eval-202406.md")
             self.assertTrue(path.is_file())
 

@@ -25,7 +25,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "ollama_url": "http://localhost:11434",
     "ollama_on_demand": False,
     "ollama_boot_timeout_seconds": 90,
-    "ollama_flash_attention": False,
+    "ollama_flash_attention": True,
     "embed_model": "qwen3-embedding:8b",
     "chat_model": "qwen2.5:32b",
     "deep_model": "deepseek-r1:32b",
@@ -37,12 +37,6 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "hint": "默认推荐，日常查阅与总结",
             "reasoning": False,
             "default": True,
-        },
-        {
-            "id": "qwen2.5:72b",
-            "label": "Qwen 2.5 · 72B",
-            "hint": "更强综合，适合长文归纳",
-            "reasoning": False,
         },
         {
             "id": "deepseek-r1:32b",

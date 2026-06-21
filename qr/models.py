@@ -12,12 +12,6 @@ _DEFAULT_ASK_MODELS: list[dict] = [
         "default": True,
     },
     {
-        "id": "qwen2.5:72b",
-        "label": "Qwen 2.5 · 72B",
-        "hint": "更强综合，适合长文归纳",
-        "reasoning": False,
-    },
-    {
         "id": "deepseek-r1:32b",
         "label": "DeepSeek R1 · 32B",
         "hint": "深度推理，复杂架构与因果分析",

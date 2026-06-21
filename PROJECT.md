@@ -13,10 +13,10 @@
 ## 开发约定
 - 修改后：`pip install -e ~/QR/dev/qr` 与 `qr web --restart`
 - 测试：`python3 -m unittest discover -s tests`
-- 自检：`qr doctor`
+- 自检：`qr doctor`；勿恢复误删 `qr.db` 的沿革逻辑
 - 索引默认仅 `~/QR`（见 `config.json` → `index_roots`）
 
 ## AI 协作（本项目）
 - 先读 `README.md`、`docs/USE_CASES.md`
+- 最小 diff；不提交除非用户要求
 - 时间线 cursor 事件按 file 打开归档路径，不用弹窗
-- **规范分层**：全局条文只在 `standards/STANDARDS.md`；本项目约定只写本文件，**绝对不混写**
