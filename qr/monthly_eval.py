@@ -30,6 +30,17 @@ DEFAULT_TEMPLATE = """# 月度评测 · {{year_month}}
 
 {{rag_failures}}
 
+### extended 扩展题（不阻断发布）
+
+| 指标 | 数值 |
+|------|------|
+| 命中率 | {{extended_retrieval_rate}}%（{{extended_retrieval_ok}}/{{extended_cases}}） |
+| 考题泄漏 | {{extended_forbidden_hits}} 题 |
+
+{{extended_rag_failures}}
+
+> 题集说明见 `docs/EVAL_EXTENDED_CASES.md` · 命令 `qr eval rag --extended`
+
 ## 二、AI 使用快照（qr ai-assess）
 
 {{ai_assess_body}}
@@ -63,18 +74,24 @@ def ensure_template() -> Path:
     return TEMPLATE_PATH
 
 
-def _run_rag_baseline() -> tuple[list[dict], dict]:
+def _run_rag_baseline() -> tuple[list[dict], dict, dict[str, dict]]:
     spec = importlib.util.spec_from_file_location(
         "model_eval", config.REPO_ROOT / "scripts" / "model_eval.py",
     )
     mod = importlib.util.module_from_spec(spec)
     assert spec.loader
     spec.loader.exec_module(mod)
-    rows = mod.run_retrieval_baseline()
-    return rows, eval_suite.summarize_rag(rows)
+    rows = mod.run_retrieval_baseline(include_extended=True)
+    split = eval_suite.summarize_rag_split(rows)
+    return rows, split["core"], split
 
 
-def _rag_failures_text(rows: list[dict]) -> str:
+def _rag_failures_text(rows: list[dict], *, tier_group: str | None = None) -> str:
+    if tier_group:
+        rows = [
+            r for r in rows
+            if eval_suite.case_tier_group({"tier": r.get("tier", "core")}) == tier_group
+        ]
     bad = [
         r for r in rows
         if not r.get("retrieval_ok") or r.get("retrieval_forbidden")
@@ -96,6 +113,7 @@ def render_report(
     *,
     rag_rows: list[dict],
     rag_summary: dict,
+    rag_split: dict[str, dict] | None = None,
     ai_snap: dict[str, Any] | None = None,
     template: str | None = None,
 ) -> str:
@@ -105,6 +123,7 @@ def render_report(
         template = ensure_template().read_text(encoding="utf-8")
     now = int(ai_snap.get("generated_ts") or time.time())
     year_month = time.strftime("%Y-%m", time.localtime(now))
+    ext = (rag_split or {}).get("extended") or {}
     body = template
     replacements = {
         "{{year_month}}": year_month,
@@ -114,7 +133,12 @@ def render_report(
         "{{cases}}": str(rag_summary.get("cases", 0)),
         "{{forbidden_hits}}": str(rag_summary.get("forbidden_hits", 0)),
         "{{search_avg}}": str(rag_summary.get("search_avg", 0)),
-        "{{rag_failures}}": _rag_failures_text(rag_rows),
+        "{{rag_failures}}": _rag_failures_text(rag_rows, tier_group="core"),
+        "{{extended_retrieval_rate}}": str(ext.get("retrieval_rate", 0)),
+        "{{extended_retrieval_ok}}": str(ext.get("retrieval_ok", 0)),
+        "{{extended_cases}}": str(ext.get("cases", 0)),
+        "{{extended_forbidden_hits}}": str(ext.get("forbidden_hits", 0)),
+        "{{extended_rag_failures}}": _rag_failures_text(rag_rows, tier_group="extended"),
         "{{ai_assess_body}}": ai_assess.format_markdown(ai_snap).strip(),
     }
     for key, val in replacements.items():
@@ -127,13 +151,19 @@ def run_monthly(*, save: bool = True) -> dict[str, Any]:
     from . import db
 
     db.init_db()
-    rag_rows, rag_summary = _run_rag_baseline()
+    rag_rows, rag_summary, rag_split = _run_rag_baseline()
     ai_snap = ai_assess.collect_snapshot()
-    markdown = render_report(rag_rows=rag_rows, rag_summary=rag_summary, ai_snap=ai_snap)
+    markdown = render_report(
+        rag_rows=rag_rows,
+        rag_summary=rag_summary,
+        rag_split=rag_split,
+        ai_snap=ai_snap,
+    )
     year_month = time.strftime("%Y-%m", time.localtime(ai_snap.get("generated_ts") or time.time()))
     out: dict[str, Any] = {
         "year_month": year_month,
         "rag": rag_summary,
+        "rag_split": rag_split,
         "ai_assess": {
             "cursor_total": ai_snap.get("cursor_total"),
             "cursor_month_hours": ai_snap.get("cursor_month_hours"),
@@ -150,7 +180,7 @@ def run_monthly(*, save: bool = True) -> dict[str, Any]:
         sidecar = OUTPUT_DIR / f"{year_month}.json"
         sidecar.write_text(
             json.dumps(
-                {"rag": rag_summary, "rag_rows": rag_rows, "ai_assess": ai_snap},
+                {"rag": rag_summary, "rag_split": rag_split, "rag_rows": rag_rows, "ai_assess": ai_snap},
                 ensure_ascii=False,
                 indent=2,
             )

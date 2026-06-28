@@ -112,7 +112,7 @@ def check_rag_quality(conn: sqlite3.Connection | None = None) -> list[dict[str, 
             return alerts
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
-        rows = mod.run_retrieval_baseline()
+        rows = mod.run_retrieval_baseline(include_extended=False)
         summary = eval_suite.summarize_rag(rows)
         rate = float(summary.get("retrieval_rate", 0))
         key = "rag_eval_rate"

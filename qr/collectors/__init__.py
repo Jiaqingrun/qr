@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .. import db
+from .. import config, db
 from . import cursor, files, gitlog, notes, shell
 
 COLLECTORS = {
@@ -42,7 +42,7 @@ def run(
             proactive.persist_digest(alerts)
             result["alerts"] = len(alerts)
         db.set_state(conn, "ingest_last_ts", str(db.now()))
-        cfg = __import__("qr.config", fromlist=["config"]).load_config()
+        cfg = config.load_config()
         if cfg.get("index_incremental_after_ingest", True):
             try:
                 from .. import indexer

@@ -26,6 +26,101 @@
     }
   }
 
+  async function loadDesignerMetrics() {
+    const el = document.querySelector('#designerMetricsOut');
+    if (!el) return;
+    try {
+      const s = await api('/api/ai-assess/snapshot');
+      const dm = s.designer_metrics || {};
+      el.textContent =
+        `设计者指标 · 近30天决策/对话 ${dm.decisions_30d ?? '—'}/${dm.cursor_events_30d ?? '—'}`
+        + `（${dm.decision_to_cursor_pct ?? 0}%）`
+        + ` · 合并引导语 ${dm.merged_guides ?? 0}`
+        + ` · ship-check ${dm.ship_check_count ?? 0} 次`;
+    } catch (_) {
+      el.textContent = '';
+    }
+  }
+
+  async function runShipDoctor() {
+    const detail = document.querySelector('#shipDoctorDetail');
+    if (!detail) return;
+    detail.textContent = '检查中…';
+    try {
+      const r = await api('/api/ship-check');
+      const doc = (r.steps || []).find((s) => s.id === 'doctor') || {};
+      const lines = [doc.detail || '完成'];
+      (doc.ok_items || []).slice(0, 6).forEach((x) => lines.push('✓ ' + x));
+      (doc.issues || []).forEach((i) => {
+        lines.push((i.level === 'error' ? '✗ ' : '! ') + (i.message || ''));
+      });
+      detail.textContent = lines.join('\n');
+      loadDesignerMetrics();
+    } catch (e) {
+      detail.textContent = '检查失败：' + (e.message || e);
+    }
+  }
+
+  async function openShipDecisionDraft() {
+    try {
+      const r = await api('/api/decision/draft', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const input = document.querySelector('#noteInput');
+      if (input) input.value = r.text || '';
+      if (typeof switchView === 'function') switchView('timeline');
+      input?.focus();
+    } catch (e) {
+      alert(e.message || e);
+    }
+  }
+
+  document.querySelector('#shipDoctorBtn')?.addEventListener('click', runShipDoctor);
+  document.querySelector('#shipDecisionBtn')?.addEventListener('click', openShipDecisionDraft);
+
+  async function loadFocusProjectSelect() {
+    const sel = document.querySelector('#focusProjectSelect');
+    if (!sel) return;
+    try {
+      const r = await api('/api/focus-project');
+      const cur = r.focus_project || '';
+      const projects = r.projects || [];
+      const opts = ['<option value="">（自动检测活跃项目）</option>'];
+      projects.forEach((p) => {
+        const escP = typeof esc === 'function' ? esc(p) : p;
+        opts.push(
+          `<option value="${escP}"${p === cur ? ' selected' : ''}>${escP}</option>`,
+        );
+      });
+      sel.innerHTML = opts.join('');
+      if (cur && !projects.includes(cur)) {
+        const escC = typeof esc === 'function' ? esc(cur) : cur;
+        sel.insertAdjacentHTML(
+          'beforeend',
+          `<option value="${escC}" selected>${escC}</option>`,
+        );
+      }
+    } catch (_) {
+      /* 忽略 */
+    }
+  }
+
+  async function saveFocusProject(project) {
+    await api('/api/focus-project', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project: project || '' }),
+    });
+    loadTodayPanel();
+    loadDesignerMetrics();
+  }
+
+  document.querySelector('#focusProjectSelect')?.addEventListener('change', (e) => {
+    saveFocusProject(e.target.value).catch((err) => alert(err.message || err));
+  });
+
   async function loadTodayPanel() {
     const el = document.querySelector('#todayOut');
     if (!el) return;
@@ -33,10 +128,30 @@
     try {
       const d = await api('/api/today');
       renderInsightKpis(d);
-      const lines = [
+      const prefix = d.pending_prefix_sessions ?? 0;
+    const prefixDays = d.pending_prefix_days ?? 7;
+    const lines = [
         '—— 接着干 ——',
         ...((d.resume?.actions) || []).map((a) => '· ' + a),
       ];
+      if (prefix > 0) {
+        lines.push(
+          '',
+          `—— 引导语前缀 ——`,
+          `· 近 ${prefixDays} 天无前缀对话 ${prefix} 场（侧栏改为「执行- 主题」后可进收件箱）`,
+        );
+      }
+      const otherCursor = d.resume?.cursor_topics_other || [];
+      const otherGit = d.resume?.recent_git_other || [];
+      if (otherCursor.length || otherGit.length) {
+        lines.push('', '—— 其他项目（已折叠）——');
+        otherCursor.forEach((t) => {
+          lines.push(`· [${t.project || '?'}] ${(t.title || '').slice(0, 60)}`);
+        });
+        otherGit.forEach((g) => {
+          lines.push(`· [${g.project || '?'}] Git: ${(g.title || '').slice(0, 50)}`);
+        });
+      }
       if (lines.length <= 1) lines.push('· 暂无建议');
       const preview = (d.digest_preview || '').trim();
       if (preview) {
@@ -60,8 +175,25 @@
     const alerts = document.querySelector('#insightKpiAlerts');
     const actions = document.querySelector('#insightKpiActions');
     if (!proj) return;
-    proj.textContent = d.active_project || '—';
+    const focus = d.focus_project || d.resume?.focus_project;
+    proj.textContent = focus || d.active_project || '—';
     if (inbox) inbox.textContent = String(d.inbox_count ?? '—');
+    const prefixEl = document.querySelector('#insightKpiPrefix');
+    if (prefixEl) {
+      const n = d.pending_prefix_sessions ?? 0;
+      prefixEl.textContent = String(n);
+      prefixEl.style.color = n > 0 ? 'var(--amber)' : '';
+    }
+    const shellEl = document.querySelector('#insightKpiShellTs');
+    if (shellEl) {
+      const st = d.shell_timestamp || {};
+      const pct = st.file_pct;
+      shellEl.textContent = pct != null ? `${pct}%` : '—';
+      shellEl.title = st.file_total
+        ? `历史 ${st.file_with_ts}/${st.file_total} 行带时间戳 · 近 ${st.days || 7} 天 ${st.window_commands || 0} 条`
+        : 'zsh 历史带 epoch 占比';
+      shellEl.style.color = pct != null && pct < 80 ? 'var(--amber)' : '';
+    }
     if (alerts) alerts.textContent = String((d.alerts || []).length);
     const acts = (d.resume?.actions) || [];
     if (actions) {
@@ -111,6 +243,7 @@
   window.switchInsightTab = switchInsightTab;
 
   async function copyPlanCommand(cmd, btn) {
+    const text = (cmd || '').trim();
     if (!text) return;
     try {
       if (navigator.clipboard?.writeText) {
@@ -299,8 +432,10 @@
       origSwitch(v);
       if (v === 'insight') {
         loadDailyPlan();
+        loadFocusProjectSelect();
         loadTodayPanel();
         loadInsightAlerts();
+        loadDesignerMetrics();
       }
     };
   }

@@ -4,6 +4,8 @@ import os
 import re
 from pathlib import Path
 
+from . import config, db
+
 
 def _read_zshrc() -> str:
     path = Path.home() / ".zshrc"
@@ -88,4 +90,33 @@ def check_extended_history() -> dict:
         "has_histfile": has_histfile,
         "snippet": snippet,
         "message": detail,
+    }
+
+
+def timestamp_stats(*, days: int = 7) -> dict:
+    """zsh 历史中带 epoch 时间戳的行占比；用于洞察趋势与 shell check。"""
+    from .collectors import shell as shell_col
+
+    cfg = config.load_config()
+    path = os.path.expanduser(cfg.get("shell_history") or "~/.zsh_history")
+    entries = [(ts, cmd) for ts, cmd in shell_col._iter_history(path) if cmd.strip()]
+    cutoff = db.now() - max(1, days) * 86400
+    file_total = len(entries)
+    file_with_ts = sum(1 for ts, _ in entries if ts is not None)
+    window_commands = sum(1 for ts, _ in entries if ts is not None and ts >= cutoff)
+    tail = entries[-500:] if len(entries) > 500 else entries
+    tail_untimestamped = sum(1 for ts, _ in tail if ts is None)
+    file_pct = round(file_with_ts / file_total * 100, 1) if file_total else 0.0
+    cfg_check = check_extended_history()
+    return {
+        "days": days,
+        "file_total": file_total,
+        "file_with_ts": file_with_ts,
+        "file_pct": file_pct,
+        "window_commands": window_commands,
+        "tail_untimestamped": tail_untimestamped,
+        "config_ok": cfg_check.get("ok", False),
+        "has_timestamps": cfg_check.get("has_timestamps", False),
+        "snippet": cfg_check.get("snippet", ""),
+        "message": cfg_check.get("message", ""),
     }

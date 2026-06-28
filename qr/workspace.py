@@ -681,8 +681,200 @@ def project_from_cursor_dir_name(name: str, cfg: dict[str, Any] | None = None) -
             if slug == raw or slug.lower() == nl:
                 return retrieval_fallback_project(proj_dir)
 
-    parts = raw.split("-")
-    return parts[-1] if parts else raw
+    return ""
+
+
+CURSOR_ROOTS_PATH = config.QR_HOME / "cursor_roots.json"
+
+
+def build_cursor_roots_from_workspace(cfg: dict[str, Any] | None = None) -> dict[str, str]:
+    """从 ~/QR 工作区生成 slug → project_id 映射。"""
+    cfg = cfg or config.load_config()
+    root = workspace_root(cfg)
+    out: dict[str, str] = dict(_LEGACY_CURSOR_SLUGS)
+    for cat in categories(cfg):
+        for pid, proj_dir in iter_category_project_dirs(root, cat):
+            out[_cursor_dir_slug(proj_dir)] = pid
+    return out
+
+
+def scan_cursor_dirs_for_roots(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
+    """扫描 ~/.cursor/projects，合并工作区与可解析 slug。"""
+    cfg = cfg or config.load_config()
+    base = _cursor_projects_base(cfg)
+    discovered = build_cursor_roots_from_workspace(cfg)
+    unmapped: list[str] = []
+    if base.is_dir():
+        for d in sorted(base.iterdir()):
+            if not d.is_dir():
+                continue
+            slug = d.name
+            if slug in discovered:
+                continue
+            pid = project_from_cursor_dir_name(slug, cfg)
+            if pid and is_listable_project_id(pid, cfg):
+                discovered[slug] = pid
+            else:
+                unmapped.append(slug)
+    for slug, pid in (cfg.get("cursor_roots") or {}).items():
+        if slug and pid:
+            discovered[str(slug)] = str(pid)
+    return {"roots": discovered, "unmapped": unmapped}
+
+
+def sync_cursor_roots_registry(
+    cfg: dict[str, Any] | None = None, *, persist: bool = True
+) -> dict[str, Any]:
+    """刷新并可选持久化 cursor_roots 注册表（~/.qr/cursor_roots.json）。"""
+    cfg = cfg or config.load_config()
+    config.ensure_dirs()
+    data = scan_cursor_dirs_for_roots(cfg)
+    payload: dict[str, Any] = {
+        "version": 1,
+        "updated_at": db.now(),
+        "roots": data["roots"],
+        "unmapped": data["unmapped"],
+    }
+    if persist:
+        CURSOR_ROOTS_PATH.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        try:
+            with db.session() as conn:
+                db.set_state(conn, "cursor_roots_updated_at", str(payload["updated_at"]))
+        except Exception:
+            pass
+    return payload
+
+
+def load_cursor_roots(cfg: dict[str, Any] | None = None) -> dict[str, str]:
+    """读取 slug → project_id；config.cursor_roots 可覆盖/追加。"""
+    cfg = cfg or config.load_config()
+    roots: dict[str, str] = {}
+    if CURSOR_ROOTS_PATH.is_file():
+        try:
+            data = json.loads(CURSOR_ROOTS_PATH.read_text(encoding="utf-8"))
+            roots.update({str(k): str(v) for k, v in (data.get("roots") or {}).items() if v})
+        except (json.JSONDecodeError, OSError):
+            pass
+    if not roots:
+        roots.update(build_cursor_roots_from_workspace(cfg))
+    for slug, pid in (cfg.get("cursor_roots") or {}).items():
+        if slug and pid:
+            roots[str(slug)] = str(pid)
+    return roots
+
+
+def recommended_cursor_open_path(
+    project_id: str, cfg: dict[str, Any] | None = None
+) -> str | None:
+    """推荐在 Cursor 中打开的项目根路径。"""
+    cfg = cfg or config.load_config()
+    pid = canonical_project_id(project_id, cfg) or normalize_project_id(project_id, cfg)
+    if not pid:
+        return None
+    proj_dir = resolve_project_dir(pid, cfg)
+    if proj_dir and proj_dir.is_dir():
+        return str(proj_dir.resolve())
+    return None
+
+
+def resolve_cursor_project(
+    slug: str, cfg: dict[str, Any] | None = None
+) -> tuple[str | None, bool]:
+    """
+    解析 ~/.cursor/projects/<slug> 为工作区 project_id。
+
+    返回 (project_id, needs_review)。无法可靠解析时 project_id 为 None。
+    """
+    cfg = cfg or config.load_config()
+    raw = (slug or "").strip()
+    if not raw:
+        return None, True
+
+    roots = load_cursor_roots(cfg)
+    nl = raw.lower()
+
+    def _validated(pid: str | None) -> tuple[str | None, bool]:
+        if not pid:
+            return None, True
+        canon = canonical_project_id(pid, cfg)
+        if canon and is_listable_project_id(canon, cfg):
+            return canon, False
+        return None, True
+
+    if raw in roots:
+        return _validated(roots[raw])
+    for k, v in roots.items():
+        if k.lower() == nl:
+            return _validated(v)
+
+    pid = project_from_cursor_dir_name(raw, cfg)
+    return _validated(pid or None)
+
+
+def remap_cursor_event_projects(
+    conn: sqlite3.Connection,
+    *,
+    cfg: dict[str, Any] | None = None,
+    dry_run: bool = False,
+) -> dict[str, int]:
+    """按 cursor_roots 与 meta.cursor_slug 修正历史 Cursor 事件 project。"""
+    cfg = cfg or config.load_config()
+    sync_cursor_roots_registry(cfg, persist=not dry_run)
+    stats = {"updated": 0, "cleared": 0, "skipped": 0}
+    rows = conn.execute(
+        "SELECT uid, project, meta FROM events WHERE source='cursor'"
+    ).fetchall()
+    for row in rows:
+        uid = row["uid"] or ""
+        cur_proj = (row["project"] or "").strip()
+        meta_raw = row["meta"] or ""
+        slug = ""
+        if meta_raw:
+            try:
+                slug = str(json.loads(meta_raw).get("cursor_slug") or "")
+            except json.JSONDecodeError:
+                slug = ""
+        new_proj: str | None = None
+        needs_review = False
+        if slug:
+            new_proj, needs_review = resolve_cursor_project(slug, cfg)
+        elif cur_proj:
+            canon = canonical_project_id(cur_proj, cfg)
+            if canon and is_listable_project_id(canon, cfg):
+                if canon != cur_proj:
+                    new_proj = canon
+            elif cur_proj in LEGACY_PROJECT_ALIASES:
+                new_proj = LEGACY_PROJECT_ALIASES[cur_proj]
+            else:
+                needs_review = True
+        if new_proj is None and needs_review:
+            if cur_proj:
+                if dry_run:
+                    stats["cleared"] += 1
+                else:
+                    conn.execute(
+                        "UPDATE events SET project=NULL WHERE uid=?",
+                        (uid,),
+                    )
+                    stats["cleared"] += 1
+            else:
+                stats["skipped"] += 1
+            continue
+        if new_proj and new_proj != cur_proj:
+            if dry_run:
+                stats["updated"] += 1
+            else:
+                conn.execute(
+                    "UPDATE events SET project=? WHERE uid=?",
+                    (new_proj, uid),
+                )
+                stats["updated"] += 1
+        else:
+            stats["skipped"] += 1
+    return stats
 
 
 def find_cursor_project_dirs(

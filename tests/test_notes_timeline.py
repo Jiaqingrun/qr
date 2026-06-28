@@ -26,6 +26,9 @@ class TestNotesTimeline(unittest.TestCase):
         self.assertTrue(
             notes.is_manual_timeline_note("note:decision:abc", '{"kind":"decision"}'),
         )
+        self.assertTrue(
+            notes.is_manual_timeline_note("note:activity:abc", '{"kind":"activity"}'),
+        )
         self.assertFalse(
             notes.is_manual_timeline_note("note:file:abc", '{"kind":"file"}'),
         )

@@ -159,14 +159,15 @@ def run_scheduled(
     if do_global:
         try:
             _LOG.info("revise global period=%s from_conversations", period)
-            content, saved, changed = governance.revise_from_conversations(period)
+            content, saved, changed, pending = governance.revise_from_conversations(period)
             result["global"] = {
                 "ok": True,
                 "version_saved": saved,
                 "content_changed": changed,
+                "pending": pending,
                 "chars": len(content),
             }
-            _LOG.info("global ok saved=%s len=%s", saved, len(content))
+            _LOG.info("global ok saved=%s pending=%s len=%s", saved, pending, len(content))
         except (OllamaError, ValueError) as e:
             result["global"] = {"ok": False, "error": str(e)}
             result["errors"].append(f"global: {e}")
@@ -199,11 +200,14 @@ def run_scheduled(
                 _LOG.warning("project %s failed: %s", pid, e)
 
     if do_global and result.get("global", {}).get("ok"):
-        try:
-            governance.generate_rules_all_workspace()
-            _LOG.info("regenerated rules for all workspace projects")
-        except OSError as e:
-            result["errors"].append(f"rules --all: {e}")
+        if not result.get("global", {}).get("pending"):
+            try:
+                governance.generate_rules_all_workspace()
+                _LOG.info("regenerated rules for all workspace projects")
+            except OSError as e:
+                result["errors"].append(f"rules --all: {e}")
+        else:
+            _LOG.info("global revision pending confirm; skip rules regen")
 
     with db.session() as conn:
         db.set_state(conn, _STATE_KEY, str(db.now()))

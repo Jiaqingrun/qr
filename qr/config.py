@@ -103,6 +103,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "standards_auto_global": True,
     "standards_auto_projects": True,
     "standards_auto_max_projects": 2,
+    "standards_auto_confirm": True,
+    "session_checkpoint_min_turns": 40,
+    "session_checkpoint_use_llm": True,
+    "session_checkpoint_timeout_seconds": 300,
+    "cursor_roots": {},
     "evolution_auto_sync": True,
     "evolution_sports_cursor_min": 5,
     "backup_keep_count": 10,
@@ -122,6 +127,23 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "retrieval_relation_link_types": ["depends", "supports", "related", "co_dev"],
     "retrieval_relation_discount": 0.85,
     "index_incremental_after_ingest": True,
+    "usage_exclude_games": True,
+    "usage_include_apps": ["华夏重工"],
+    "usage_exclude_apps": [],
+    "usage_exclude_bundles": [],
+    # M10-1 · 屏幕采样暂停与写入排除（与 usage 展示过滤独立）
+    "tracker_pause_until": 0,
+    "tracker_exclude_apps": [],
+    "tracker_exclude_bundles": [],
+    # M8-1 · 备份超过 N 天 doctor 黄字
+    "backup_warn_days": 7,
+    # M4-3 · update 周期自动清理孤儿索引
+    "index_health_auto": True,
+    "index_health_auto_days": 7,
+    # 洞察「接着干」优先展示的项目（如 dev/qr）；空则自动检测活跃项目
+    "focus_project": "",
+    # 合规 --ship：近 N 天决策者验收与决策里程碑
+    "compliance_ship_days": 14,
 }
 
 

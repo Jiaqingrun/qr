@@ -19,8 +19,10 @@
 ## 3. Web 服务与 API
 
 - [x] `qr web --restart` 后 `http://127.0.0.1:8765` 可访问（需本机启动验证）
+- [ ] `python scripts/web_smoke.py` 主要 GET 冒烟通过（M9-2，需 Web 运行中）
 - [x] 启动时 `startup` 已执行 `db.init_db()`（schema / FTS / vec / 关系表）
 - [x] `/api/status` 返回健康信息（需运行中服务）
+- [ ] `python scripts/web_smoke.py`（`qr web` 运行中，主要 GET 冒烟）
 - [x] 写操作（POST/PUT/DELETE）记入时间线 `source=qr`
 - [x] `/api/standards/restore` 时间线文案为「恢复标准模板」（非 version_id）
 

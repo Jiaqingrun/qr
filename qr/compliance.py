@@ -124,3 +124,142 @@ def knowledge_graph(limit: int = 40) -> dict:
     ]
     node_list = sorted(nodes.values(), key=lambda x: -x["count"])[:limit]
     return {"nodes": node_list, "edges": edge_list}
+
+
+def _ship_days(cfg: dict | None, days: int | None) -> int:
+    cfg = cfg or config.load_config()
+    if days and days > 0:
+        return int(days)
+    return max(1, int(cfg.get("compliance_ship_days", 14)))
+
+
+def _project_active(conn: sqlite3.Connection, pid: str, since: int) -> bool:
+    from . import workspace
+
+    pvals = workspace.project_filter_values(pid)
+    if not pvals:
+        pvals = [pid]
+    ph = ",".join("?" * len(pvals))
+    row = conn.execute(
+        f"SELECT 1 FROM events WHERE ts>=? AND project IN ({ph}) LIMIT 1",
+        (since, *pvals),
+    ).fetchone()
+    return row is not None
+
+
+def _decision_count(conn: sqlite3.Connection, pid: str, since: int) -> int:
+    from . import workspace
+
+    pvals = workspace.project_filter_values(pid)
+    if not pvals:
+        pvals = [pid]
+    ph = ",".join("?" * len(pvals))
+    row = conn.execute(
+        f"SELECT COUNT(*) c FROM events WHERE source='note' AND ts>=? "
+        f"AND project IN ({ph}) AND content LIKE '%决策记录%'",
+        (since, *pvals),
+    ).fetchone()
+    return int(row["c"] if row else 0)
+
+
+def _has_ship_check(conn: sqlite3.Connection, pid: str, since: int, cfg: dict) -> bool:
+    from . import workspace
+
+    at = db.get_state(conn, f"ship_check_at:{pid}")
+    if at:
+        try:
+            if int(at) >= since:
+                return True
+        except ValueError:
+            pass
+    last_at = db.get_state(conn, "ship_check_last_at")
+    last_proj = db.get_state(conn, "ship_check_last_project") or ""
+    canon_last = workspace.canonical_project_id(last_proj, cfg) or last_proj
+    if last_at and canon_last == pid:
+        try:
+            if int(last_at) >= since:
+                return True
+        except ValueError:
+            pass
+    slug = pid.split("/")[-1]
+    row = conn.execute(
+        "SELECT 1 FROM events WHERE ts>=? AND source='qr' AND ("
+        "json_extract(meta,'$.action')='cli:ship-check' OR title LIKE '%设计者验收%'"
+        ") AND (project=? OR content LIKE ? OR content LIKE ?) LIMIT 1",
+        (since, pid, f"%{pid}%", f"%{slug}%"),
+    ).fetchone()
+    return row is not None
+
+
+def _has_doctor_run(conn: sqlite3.Connection, since: int) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM events WHERE ts>=? AND source='qr' AND ("
+        "json_extract(meta,'$.action')='cli:doctor' OR title LIKE '%系统自检%'"
+        ") LIMIT 1",
+        (since,),
+    ).fetchone()
+    return row is not None
+
+
+def scan_ship_checks(
+    conn: sqlite3.Connection | None = None,
+    *,
+    days: int | None = None,
+    cfg: dict | None = None,
+) -> dict:
+    """设计者验收清单：近 N 天活跃项目的决策与 ship-check/doctor 记录。"""
+    from . import workspace
+
+    cfg = cfg or config.load_config()
+    span = _ship_days(cfg, days)
+    since = db.now() - span * 86400
+    own = conn is None
+    if own:
+        db.init_db()
+        conn = db.connect()
+    try:
+        projects: list[dict] = []
+        missing_decisions: list[str] = []
+        missing_ship: list[str] = []
+        doctor_recent = _has_doctor_run(conn, since)
+        root = workspace.workspace_root(cfg)
+        for cat in workspace.categories(cfg):
+            for pid, proj_dir in workspace.iter_category_project_dirs(root, cat):
+                if not workspace.is_listable_project_id(pid, cfg):
+                    continue
+                active = _project_active(conn, pid, since)
+                decisions = _decision_count(conn, pid, since)
+                ship_ok = _has_ship_check(conn, pid, since, cfg)
+                warnings: list[str] = []
+                if active:
+                    if decisions <= 0:
+                        warnings.append(f"近 {span} 天无决策记录（qr log --type decision）")
+                        missing_decisions.append(pid)
+                    if not ship_ok and not doctor_recent:
+                        warnings.append(
+                            f"近 {span} 天无设计者验收（qr ship-check -p {pid} 或 qr doctor）"
+                        )
+                        missing_ship.append(pid)
+                item = {
+                    "project": pid,
+                    "path": str(proj_dir),
+                    "active": active,
+                    "decisions": decisions,
+                    "ship_check": ship_ok,
+                    "doctor_recent": doctor_recent,
+                    "ok": not warnings,
+                    "warnings": warnings,
+                }
+                projects.append(item)
+        projects.sort(key=lambda x: (x["ok"], not x["active"], x["project"]))
+        return {
+            "days": span,
+            "doctor_recent": doctor_recent,
+            "projects": projects,
+            "missing_decisions": missing_decisions,
+            "missing_ship": missing_ship,
+            "ok": not missing_decisions and not missing_ship,
+        }
+    finally:
+        if own:
+            conn.close()

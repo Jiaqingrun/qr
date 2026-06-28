@@ -299,20 +299,27 @@ def _digest_for_revision(conn, start: int, end: int) -> str:
     return out
 
 
-def revise_from_behavior(period: str = "week") -> tuple[str, bool, bool]:
+def revise_from_behavior(
+    period: str = "week", *, confirm: bool | None = None
+) -> tuple[str, bool, bool, bool]:
     """基于近期行为摘要修订全局规范（不含对话摘录）。
 
-    返回 (正文, 是否新建归档版, 相对修订前是否有实质变更)。
+    返回 (正文, 是否新建归档版, 相对修订前是否有实质变更, 是否待确认)。
     """
-    return _revise_global(period, from_conversations=False)
+    return _revise_global(period, from_conversations=False, confirm=confirm)
 
 
-def revise_from_conversations(period: str = "week") -> tuple[str, bool, bool]:
+def revise_from_conversations(
+    period: str = "week", *, confirm: bool | None = None
+) -> tuple[str, bool, bool, bool]:
     """基于行为摘要 + 全部 Cursor 对话摘录修订全局规范。"""
-    return _revise_global(period, from_conversations=True)
+    return _revise_global(period, from_conversations=True, confirm=confirm)
 
 
-def _revise_global(period: str, *, from_conversations: bool) -> tuple[str, bool, bool]:
+def propose_global_revision(
+    period: str = "week", *, from_conversations: bool = False
+) -> tuple[str, str, str]:
+    """生成修订草案，不写入文件。返回 (草案, 当前正文, 归档备注)。"""
     from . import config, standards_digest, summary
     from .ollama_client import Ollama
 
@@ -358,9 +365,27 @@ def _revise_global(period: str, *, from_conversations: bool) -> tuple[str, bool,
         if from_conversations
         else f"根据最近{period}行为自动修订"
     )
-    recorded = save_standards(new, note=note)
-    changed = normalize_for_compare(current) != normalize_for_compare(new)
-    return new, recorded, changed
+    return new, current, note
+
+
+def _revise_global(
+    period: str, *, from_conversations: bool, confirm: bool | None = None
+) -> tuple[str, bool, bool, bool]:
+    from . import standards_revision
+
+    new, current, note = propose_global_revision(
+        period, from_conversations=from_conversations
+    )
+    source = "standards-auto" if confirm is None else "revise"
+    return standards_revision.finish_global_revision(
+        new,
+        current,
+        note,
+        confirm=confirm,
+        period=period,
+        from_conversations=from_conversations,
+        source=source,
+    )
 
 
 def _personal_rule_mdc(standards: str) -> str:

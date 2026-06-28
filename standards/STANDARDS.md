@@ -19,6 +19,9 @@
 - **运维参考**（细节以 `~/QR/dev/qr/README.md` 为准）：自检 `qr doctor`，备份 `qr backup`，后台任务 `qr schedule status`。
 
 ## 二、Python 环境规范
+
+> **适用说明**：本章约束 **AI 实现** 时的环境与可复现性（见 §四·协作者角色）。**设计者**不必手写 Python，但须能执行验收清单。
+
 - 系统 Python（`/usr/bin/python3`）保持纯净，不 pip 安装任何东西。
 - 每个需要依赖的项目用独立 conda 环境：`conda create -n <name> python=3.x`。
 - 统一用 `/opt/anaconda3` 作为唯一 conda 入口；环境名用小写。
@@ -33,6 +36,23 @@
 
 ## 四、AI 协作规范
 - 复杂/多文件任务先让 AI 出方案再动手。
+
+### 协作者角色（设计者 / AI 实现 / 验收）
+
+本机 QR 及 `~/QR` 业务项目的协作默认按 **三角色** 理解；**不得**用「是否会手写编程语言」代替对设计能力或 AI 协作水平的评价。
+
+| 角色 | 承担者 | 职责 | 可观测证据 |
+|------|--------|------|------------|
+| **设计者** | 本人 | 定义要什么/不要什么、模块与数据流、规范与验收标准；维护 `qr standards`、`PROJECT.md`、进化计划 | 规范版本、决策笔记、`EVOLUTION_PLAN`、对话中的约束与方案选择 |
+| **AI 实现** | Cursor Agent 等 | 按设计者约束写代码、改配置、跑命令、补测试与文档 | Git diff、`unittest`、对话中的执行记录 |
+| **验收** | 本人（可请 AI 解读结果） | 确认行为符合设计：Web 可用、`qr doctor`、评测基线不退化 | `qr doctor`、Web/CLI 点验、`qr eval rag`、显式确认后再 commit |
+
+- **设计者身份**：QR 本地知识库由本人亲手设计；实现层以 AI 协作为主（见 `dev/qr/README.md`），**不改变设计主权**。
+- **学历与语法**：未受过系统编程教育 **不** 等同于「无设计能力」；**禁止**在 AI 评测、复盘、对话中将「看不懂源码」直接判为低档位。
+- **§二 Python / §三 Git**：主要约束 **AI 实现**；设计者以 **验收清单** 把关，不要求逐行手写。
+- **设计者验收清单（最小）**：① `qr doctor` 无新增严重项；② 相关功能在 Web 或 CLI 点验通过；③ 里程碑 `qr log --type decision` 记录「问题 / 选项 / 结论 / 原因」。
+- **AI 评测读法**：六维与 L 阶梯评的是 **AI 协作与 Personal AI Ops**；`工具链` 高分可来自「设计并落地 qr」；**不得**仅用 Python 熟练度替代设计或协作档位。
+
 - **全局规范**（本文件）与 **项目规范**（各仓库 `PROJECT.md`）**严格分层、绝对不混写**：
   - **全局只写**：`~/QR` / `~/.qr`、conda/Git、通用 AI 协作、引导语前缀、QR Web **共用**布局习惯（第六章）。
   - **项目只写**：用途、技术栈、本项目目录、测试命令、业务边界、禁止改动的范围、本项目 MCP `project` 参数等。
@@ -57,8 +77,15 @@
 - 每周查看 `qr summary --period week` 的总结，对照本规范修正习惯。
 - 阶段性把散落项目迁入 `~/QR` 或归档：`qr workspace migrate` / `qr workspace prune`。
 
+### 本机使用统计
+- QR 统计本机使用信息（`app_usage` 屏幕采样、`qr usage`、Web 使用页、`qr ai-assess`、周期总结中的应用时长段落）时，**必须过滤一切游戏相关应用**，不计入 Top 应用、活跃总时长、AI 评测中的屏幕活跃指标。
+- **游戏**指游玩与商业启动器（Steam / Epic / Battle.net / GOG / Paradox Launcher / EVE 客户端等），**不含**在 `~/QR` 内自研项目的调试前台（如 `华夏重工`）；后者列入 `usage_include_apps` 白名单。
+- 原始采样仍可写入 `app_usage` 表；**展示与汇总时排除**（默认 `usage_exclude_games: true`）。可在 `~/.qr/config.json` 用 `usage_exclude_apps` / `usage_exclude_bundles` 追加排除项，`usage_include_apps` 追加白名单。
+- **暂停采集**：`tracker_pause_until`（`qr track --pause 2h` / Web 运维页）；暂停期间**不写入** `app_usage`。按 bundle/App 不采样用 `tracker_exclude_bundles` / `tracker_exclude_apps`（与展示过滤独立）。
+
 ### AI 使用水平评测（规则摘要）
 - **原则**：以 `~/.qr/qr.db` 行为证据为主（Cursor 归档、屏幕采样、eval、facts），辅以多框架对照；完整量表见 **`~/QR/dev/qr/docs/AI_SKILL_ASSESSMENT.md`**。
+- **角色声明**：评测须对照 §四「协作者角色」；**禁止**以是否会手写代码否定设计者档位或 QR 设计成就。
 - **主量表**：**QR 六维**（提示工程、工具链、元认知、复盘习惯、多项目协作、领域应用），各 1–10 分；综合分 = 六维均值。**档位**：7.6–8.5 为 L4+，8.6+ 逼近 L5。
 - **对照框架**（重大评测时）：AISA 五维（0–100）、个人 L1–L6、AILit 四域、Prompt 认证（Foundation→Lead）、PRL 提示就绪度。
 - **硬指标**：近月 Cursor 时长与切入、按项目对话分布、决策笔记数、引导语/片段、RAG 基线（`qr eval rag`：命中率/泄漏/均耗时）、规范版本与 facts。

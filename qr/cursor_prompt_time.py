@@ -21,7 +21,8 @@ def parse_event_uid(uid: str) -> tuple[str, int] | None:
 
 @lru_cache(maxsize=1)
 def _transcript_map() -> dict[str, Path]:
-    base = Path(config.load_config()["cursor_projects_dir"]).expanduser()
+    cfg = config.load_config()
+    base = Path(cfg.get("cursor_projects_dir", "~/.cursor/projects")).expanduser()
     if not base.exists():
         return {}
     return cursor_col._iter_transcripts(base)

@@ -38,15 +38,26 @@ def scan(conn: sqlite3.Connection | None = None) -> dict[str, Any]:
                 if "/agent-transcripts/" in path_s or path_s.endswith(".jsonl"):
                     stale_cursor.append(item)
         backup_issues: list[str] = []
+        backup_level = "info"
         from . import backup_ops
 
         backups = backup_ops.list_backup_files()[:3]
+        latest = backup_ops.latest_backup_info()
+        cfg = config.load_config()
+        warn_days = max(1, int(cfg.get("backup_warn_days", 7)))
         if not backups:
             backup_issues.append("尚无数据库备份")
+            backup_level = "warn"
         else:
             bad = [b.name for b in backups if not backup_ops.verify_backup(b).get("ok")]
             if bad:
                 backup_issues.append(f"备份损坏: {', '.join(bad)}")
+                backup_level = "warn"
+            elif latest.get("age_days") is not None and latest["age_days"] > warn_days:
+                backup_issues.append(
+                    f"上次备份 {latest['age_days']:.0f} 天前（超过 {warn_days} 天）"
+                )
+                backup_level = "warn"
         return {
             "documents": len(rows),
             "missing_files": len(missing_file),
@@ -54,6 +65,8 @@ def scan(conn: sqlite3.Connection | None = None) -> dict[str, Any]:
             "missing_samples": missing_file[:8],
             "stale_cursor_samples": stale_cursor[:8],
             "backup_issues": backup_issues,
+            "backup_level": backup_level,
+            "latest_backup": latest,
             "ok": not missing_file and not backup_issues,
         }
     finally:
@@ -225,3 +238,36 @@ def cleanup_wrong_dim_chunks(
     finally:
         if own:
             conn.close()
+
+
+def maybe_auto_cleanup(
+    conn: sqlite3.Connection,
+    *,
+    force: bool = False,
+) -> dict[str, Any] | None:
+    """M4-3：按配置周期自动清理源文件已消失的孤儿索引。"""
+    cfg = config.load_config()
+    if not force and not cfg.get("index_health_auto", True):
+        return None
+    interval = max(1, int(cfg.get("index_health_auto_days", 7))) * 86400
+    now = db.now()
+    if not force:
+        last = int(db.get_state(conn, "index_health_auto_last") or "0")
+        if now - last < interval:
+            return None
+    before = scan(conn)
+    missing = int(before.get("missing_files") or 0)
+    if missing <= 0:
+        db.set_state(conn, "index_health_auto_last", str(now))
+        return {"ran": False, "reason": "no_orphans", "missing_files": 0}
+    stats = cleanup_orphans(conn, dry_run=False)
+    db.set_state(conn, "index_health_auto_last", str(now))
+    samples = [
+        s.get("path", "") for s in (before.get("missing_samples") or [])[:5]
+    ]
+    return {
+        "ran": True,
+        "missing_before": missing,
+        "cleanup": stats,
+        "sample_paths": samples,
+    }

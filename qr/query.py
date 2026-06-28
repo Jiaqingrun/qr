@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from typing import Iterator
 
 import numpy as np
@@ -534,6 +535,48 @@ def prepare_ask(
         "similar": similar,
         "early_answer": None,
     }
+
+
+def format_citations(hits: list[dict], *, question: str = "") -> str:
+    """将检索命中格式化为可读出处列表（不调用生成模型）。"""
+    if not hits:
+        return (
+            "未检索到相关片段。请确认项目已 `qr index`，或换一种问法。"
+        )
+    head = f"检索「{question}」共 {len(hits)} 条出处（仅列片段，未生成回答）"
+    lines = [head, ""]
+    for i, h in enumerate(hits, 1):
+        path = h.get("path") or "（未知路径）"
+        name = Path(str(path)).name or str(path)
+        proj = h.get("project")
+        score = h.get("score")
+        text = (h.get("text") or "").strip().replace("\n", " ")
+        if len(text) > 240:
+            text = text[:240] + "…"
+        lines.append(f"### {i}. {name}")
+        lines.append(f"- 路径：`{path}`")
+        if proj:
+            lines.append(f"- 项目：{proj}")
+        if score is not None:
+            try:
+                lines.append(f"- 相似度：{float(score):.3f}")
+            except (TypeError, ValueError):
+                pass
+        if text:
+            lines.append(f"- 摘要：{text}")
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def citations_only(
+    question: str,
+    k: int = 6,
+    project: str | None = None,
+    category: str | None = None,
+) -> tuple[str, list[dict]]:
+    """仅检索并格式化出处，不调用 chat 生成模型。"""
+    hits = search(question, k, project=project, category=category)
+    return format_citations(hits, question=question), hits
 
 
 def ask(

@@ -94,3 +94,11 @@ qr index --reindex        # 迁移后重建索引（project 变为 dev/qr 形式
 
 ## 配置
 编辑 `~/.qr/config.json` 可调整索引目录、模型名、分块大小、排除目录等。
+
+## 运维与数据库
+
+- **WAL 模式**：`qr.db` 默认 `PRAGMA journal_mode=WAL`；读写并发时若见 `database is locked`，`db.session()` / `set_state` 会自动退避重试。
+- **写事务**：Web 屏蔽/删除等短写用 `write_session()`（`BEGIN IMMEDIATE` + `busy_timeout`）。
+- **减轻锁竞争**：长期运行后可 `qr doctor --fix`；避免多进程同时 `init_db` 重建 vec 表。
+- **迁移包**：`qr export-bundle` / `qr import-bundle --dry-run`（仅 `~/.qr` 数据，不含 `~/QR` 源码）。
+- **冒烟**：`qr web --restart` 后 `python scripts/web_smoke.py`。

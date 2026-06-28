@@ -16,7 +16,8 @@
 
 **细节**  
 - Cursor 问话会进时间线，同时进入 **引导语收件箱**（见第 11 节）  
-- 时间戳不准时，检查 zsh `EXTENDED_HISTORY`（`qr shell check`）  
+- 时间戳不准时，检查 zsh `EXTENDED_HISTORY`（`qr shell check`）；洞察侧栏可看 **shell 时间戳** 占比趋势  ；洞察侧栏可看 **shell 时间戳** 占比  
+- 改进配置：`qr shell check --copy-snippet` 输出可粘贴的 zshrc 片段  
 
 ---
 
@@ -67,10 +68,12 @@ qr query "database locked" -k 8                   # 只检索、不生成
 **推荐操作**  
 ```bash
 qr log "选用 SQLite 因单机部署" --type decision
+qr log "今天在 dev/scribe 写了 2h 章节草稿" --type activity -p dev/scribe
 ```
 
 **细节**  
 - 决策模板含：问题 / 选项 / 结论 / 原因  
+- **活动**（`--type activity`）：记录非 Cursor 投入（写作、设计、调研等）；标题自动加 `[活动]` 前缀，进时间线但不进引导语  
 - **时间线 note** 仅 `qr log` 手动写入；`~/.qr/notes/*.md` 不再同步进时间线  
 - 笔记内容仍可用于 `qr summary` 与 RAG（若已纳入索引）  
 - 完整 **引导语** 导出在 `~/.qr/prompts/<类型>/`（见下）  
@@ -89,9 +92,15 @@ qr rules --user              # 粘贴到 Cursor User Rules
 qr rules --all               # 各项目 .cursor/rules
 qr compliance                # 谁缺 README、目录是否乱
 qr standards-revise --period week
+qr standards-pending          # 查看待确认 diff
+qr standards-confirm          # 应用待确认修订
+qr standards-confirm --reject # 丢弃草案
 ```
 
 **细节**  
+- 默认 `standards_auto_confirm: true`：AI 修订先生成草案与 diff，须 CLI 确认或 Web 规范页「确认应用」后才写入  
+- `qr standards-revise -y` 或配置 `standards_auto_confirm: false` 可跳过确认  
+- 定时 `standards-auto` 同样进入待确认队列，不未经确认覆盖当前规范  
 - 规范正文：`~/.qr/standards.md`，有版本历史  
 - 与 **引导语** 配合：把常用 Cursor 提示沉淀成库内资产  
 
@@ -166,11 +175,21 @@ qr backup --verify ~/.qr/backups/qr-时间戳.db
 qr backup --restore ~/.qr/backups/qr-时间戳.db   # 恢复前自动另存 qr-pre-restore-*.db
 qr index-health
 qr index-health --cleanup    # 清理源文件已消失的向量索引
+qr update --index-health     # 强制清理孤儿索引（平时由 index_health_auto 每周触发）
+qr export-bundle             # 打包 ~/.qr 迁移 zip
+qr import-bundle PATH --dry-run
+qr cursor sanitize           # 扫描时间线疑似密钥
 ```
+
+**恢复流程（摘要）**  
+1. `qr backup --list` 选最近一份  
+2. `qr backup --verify <路径>` 确认可读  
+3. `qr backup --restore <路径>`（当前库另存为 `qr-pre-restore-*.db`）  
+4. `qr doctor` 与 Web 运维页「校验最近备份」复核  
 
 **细节**  
 - 引导语 Markdown 在 `~/.qr/prompts/`，`qr ingest` 会同步进笔记事件  
-- `qr doctor` 会提示索引失效路径与备份状态；Web **运维** 页也可一键检查/清理  
+- `qr doctor` 会提示索引失效路径与备份状态；超过 7 天无备份会黄字 warn；Web **运维** 页可备份/校验/清理孤儿索引  
 
 ---
 
@@ -181,7 +200,8 @@ qr index-health --cleanup    # 清理源文件已消失的向量索引
 
 **推荐操作**  
 ```bash
-qr eval rag                    # 几秒，只看检索
+qr eval rag                    # 几秒，core 门禁 9 题
+qr eval rag --extended         # core + extended 分栏命中率
 qr eval compare-four           # 全量四模型（较久）
 open ~/.qr/logs/model_compare_latest.html
 ```

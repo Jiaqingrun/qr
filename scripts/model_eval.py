@@ -9,9 +9,12 @@ from pathlib import Path
 from qr import config, eval_suite, query
 
 
-def run_retrieval_baseline(cases: list[dict] | None = None) -> list[dict]:
+def run_retrieval_baseline(
+    cases: list[dict] | None = None, *, include_extended: bool = False,
+) -> list[dict]:
     """每题只检索一次；与生成模型无关，用于 RAG 回归。"""
-    cases = cases or eval_suite.load_cases()
+    if cases is None:
+        cases = eval_suite.load_cases(include_extended=include_extended)
     rows: list[dict] = []
     for case in cases:
         t0 = time.perf_counter()

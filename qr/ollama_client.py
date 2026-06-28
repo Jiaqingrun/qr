@@ -72,6 +72,25 @@ class Ollama:
         self.embed_dim = int(cfg.get("embed_dim") or 0)
         # trust_env=False：忽略系统/环境代理，本机直连 ollama（避免被 Clash 等代理拦截返回 502）
         self._client = httpx.Client(trust_env=False, timeout=600.0)
+        self._closed = False
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        self._client.close()
+
+    def __enter__(self) -> Ollama:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        self.close()
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
 
     def embed(self, text: str) -> list[float]:
         best_err: OllamaError | None = None

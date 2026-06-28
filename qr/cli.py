@@ -146,14 +146,34 @@ def shell_enable():
 
 
 @shell_app.command("check")
-def shell_check_cmd():
+def shell_check_cmd(
+    days: int = typer.Option(7, "--days", help="统计近 N 天带时间戳命令"),
+    copy_snippet: bool = typer.Option(False, "--copy-snippet", help="仅输出可粘贴的 zshrc 配置"),
+):
     """检查 zsh 历史是否适合 QR 行为补录。"""
     r = shell_check.check_extended_history()
+    st = shell_check.timestamp_stats(days=days)
+    if copy_snippet:
+        console.print(r["snippet"])
+        return
     if r["ok"]:
         console.print(f"[green]✓[/] {r['message']}")
     else:
         console.print(f"[yellow]![/] {r['message']}")
-        console.print(f"[dim]运行 qr shell enable 可自动写入配置[/]")
+        console.print("[dim]运行 qr shell enable 可自动写入配置[/]")
+    console.print(
+        f"[dim]历史行带时间戳: {st['file_pct']}% "
+        f"({st['file_with_ts']}/{st['file_total']}) · "
+        f"近 {st['days']} 天可定位命令 {st['window_commands']} 条[/]"
+    )
+    if st["tail_untimestamped"]:
+        console.print(
+            f"[dim]最近 {min(500, st['file_total'])} 行中 "
+            f"{st['tail_untimestamped']} 行无时间戳（启用 EXTENDED_HISTORY 后新命令会改善）[/]"
+        )
+    if not r["ok"]:
+        console.print("\n[bold]可复制到 ~/.zshrc：[/]")
+        console.print(r["snippet"])
 
 
 @app.command()
@@ -172,7 +192,8 @@ def init():
     console.print(f"[green]✓[/] 配置: {config.CONFIG_PATH}")
     console.print(f"[green]✓[/] 个人规范: {sp}")
     try:
-        models = Ollama().health()
+        with Ollama() as ol:
+            models = ol.health()
         console.print(f"[green]✓[/] ollama 可用，模型: {', '.join(models)}")
     except OllamaError as e:
         console.print(f"[yellow]![/] {e}")
@@ -272,6 +293,124 @@ def doctor(
         console.print("[green]✓[/] 未发现待处理项")
     if any(i["level"] == "error" for i in rep["issues"]):
         raise typer.Exit(1)
+
+
+@app.command("ship-check")
+def ship_check_cmd(
+    project: str = typer.Option("", "-p", "--project", help="项目 id，如 dev/qr"),
+    skip_tests: bool = typer.Option(False, "--skip-tests", help="跳过 unittest"),
+):
+    """设计者最小验收：doctor → 测试 → Web 点验提示。"""
+    from . import ship_check
+
+    db.init_db()
+    pid = project.strip() or None
+    result = ship_check.run_ship_check(project=pid, skip_tests=skip_tests)
+    console.print(f"[bold]设计者验收 · {result['project']}[/]\n")
+    for step in result.get("steps", []):
+        mark = "[green]✓[/]" if step.get("ok") else "[red]✗[/]"
+        console.print(f"{mark} {step.get('title')}: {step.get('detail', '')}")
+        if step.get("id") == "doctor":
+            for line in step.get("ok_items") or []:
+                console.print(f"  [dim]· {line}[/]")
+            for issue in step.get("issues") or []:
+                if issue.get("level") == "error":
+                    console.print(f"  [red]! {issue.get('message')}[/]")
+                elif issue.get("level") == "warn":
+                    console.print(f"  [yellow]! {issue.get('message')}[/]")
+        if step.get("tail"):
+            console.print(f"[dim]{step['tail']}[/]")
+        if step.get("hint"):
+            console.print(f"[dim]  → {step['hint']}[/]")
+        if step.get("url"):
+            console.print(f"  [cyan]{step['url']}[/]")
+    console.print(
+        f"\n[bold]下一步[/]：{result.get('decision_hint')} — "
+        f"[dim]{result.get('decision_template')}[/]"
+    )
+    raise typer.Exit(ship_check.exit_code(result))
+
+
+decision_app = typer.Typer(help="里程碑决策草稿")
+app.add_typer(decision_app, name="decision")
+
+
+@decision_app.command("draft")
+def decision_draft_cmd(
+    project: str = typer.Option("", "-p", "--project", help="项目 id"),
+    session: str = typer.Option("", "--session", help="Cursor 会话 uuid"),
+    turns: int = typer.Option(30, "--turns", help="纳入问话轮数"),
+    save: bool = typer.Option(False, "--save", help="写入 ~/.qr/notes 供 ingest"),
+):
+    """从近 N 轮 Cursor 对话 + Git 摘要生成决策草稿（不自动入库）。"""
+    from . import decision_draft
+
+    db.init_db()
+    draft = decision_draft.build_draft(
+        session_id=session.strip() or None,
+        project=project.strip() or None,
+        turn_limit=turns,
+    )
+    console.print(Markdown(draft["text"]))
+    if save:
+        config.ensure_dirs()
+        notes_dir = config.QR_HOME / "notes"
+        notes_dir.mkdir(parents=True, exist_ok=True)
+        sid = (draft.get("session_id") or "manual")[:8]
+        path = notes_dir / f"decision-draft-{sid}.md"
+        path.write_text(draft["text"], encoding="utf-8")
+        console.print(f"[green]✓[/] 已写入 {path}（执行 qr ingest --source notes 同步）")
+
+
+@app.command(name="session-checkpoint")
+def session_checkpoint_cmd(
+    session_id: str = typer.Argument("", help="Cursor 会话 uuid（与 --list 二选一）"),
+    force: bool = typer.Option(False, "--force", help="覆盖已有 checkpoint"),
+    list_long: bool = typer.Option(False, "--list", help="列出超过阈值的长会话"),
+    limit: int = typer.Option(20, "--limit", help="--list 时最多显示条数"),
+):
+    """长 Cursor 会话 checkpoint（已完成 / 待办 / 风险）。"""
+    from . import session_checkpoint
+    from .ollama_client import OllamaError
+
+    db.init_db()
+    if list_long:
+        with db.session() as conn:
+            rows = session_checkpoint.list_long_sessions(conn, limit=limit)
+        if not rows:
+            console.print(f"[dim]无 ≥{session_checkpoint.min_turns()} 轮会话[/]")
+            raise typer.Exit(0)
+        t = Table(title=f"长会话（≥{session_checkpoint.min_turns()} 轮）")
+        t.add_column("session_id")
+        t.add_column("轮次", justify="right")
+        t.add_column("项目")
+        t.add_column("checkpoint")
+        for r in rows:
+            t.add_row(
+                r["session_id"][:36],
+                str(r["turns"]),
+                r.get("project") or "—",
+                "✓" if r.get("has_checkpoint") else "—",
+            )
+        console.print(t)
+        console.print("[dim]生成：qr session-checkpoint <uuid>[/]")
+        raise typer.Exit(0)
+    if not session_id.strip():
+        console.print("[red]✗[/] 请提供 session_id 或使用 --list")
+        raise typer.Exit(1)
+    try:
+        with db.session() as conn:
+            result = session_checkpoint.create_checkpoint(
+                conn, session_id.strip(), force=force,
+            )
+    except (ValueError, OllamaError) as e:
+        console.print(f"[red]✗[/] {e}")
+        raise typer.Exit(1)
+    if result.get("created"):
+        console.print("[green]✓[/] 已生成 checkpoint 并写入时间线")
+    else:
+        console.print("[yellow]![/] 已有 checkpoint（使用 --force 覆盖）")
+    console.print(Markdown(result.get("content") or ""))
 
 
 @app.command()
@@ -511,6 +650,9 @@ def ask(text: str = typer.Argument(..., help="你的问题"),
         model: str = typer.Option("", "--model", "-m", help="问答模型，见 qr ask --list-models"),
         deep: bool = typer.Option(False, "--deep", help="[兼容] 等同选默认推理模型"),
         web: bool = typer.Option(False, "--web", help="联网搜索（默认百度，被拦时回退必应）"),
+        citations_only: bool = typer.Option(
+            False, "--citations-only", help="只列检索出处，不调用生成模型",
+        ),
         no_stream: bool = typer.Option(
             False, "--no-stream", help="等待完整回答后再显示（并渲染 Markdown）"),
         list_models: bool = typer.Option(False, "--list-models", help="列出可选问答模型")):
@@ -519,7 +661,8 @@ def ask(text: str = typer.Argument(..., help="你的问题"),
 
     if list_models:
         try:
-            installed = Ollama().health()
+            with Ollama() as ol:
+                installed = ol.health()
         except OllamaError:
             installed = []
         for m in qr_models.list_ask_models_with_status(installed):
@@ -535,6 +678,19 @@ def ask(text: str = typer.Argument(..., help="你的问题"),
 
     proj = project or None
     cat = category or None
+
+    if citations_only:
+        try:
+            with console.status("检索本地出处…"):
+                answer, hits = query.citations_only(
+                    text, k, project=proj, category=cat,
+                )
+        except OllamaError as e:
+            console.print(f"[red]✗[/] {e}"); raise typer.Exit(1)
+        console.print(Markdown(answer))
+        if hits:
+            console.print("\n[dim]（未调用 chat 模型；嵌入检索仍可能使用 Ollama embed）[/]")
+        return
 
     def _print_sources(hits, web_results):
         if hits:
@@ -598,10 +754,20 @@ def ask(text: str = typer.Argument(..., help="你的问题"),
 
 
 @app.command()
-def log(text: str = typer.Argument(..., help="笔记内容"),
-        tags: str = typer.Option(None, "--tags", "-t"),
-        kind: str = typer.Option("note", "--type", help="note 或 decision（决策日志）")):
-    """随手记录一条笔记/日志。decision 类型用于结构化决策记录。"""
+def log(
+    text: str = typer.Argument(..., help="笔记内容"),
+    tags: str = typer.Option(None, "--tags", "-t"),
+    project: str = typer.Option("", "-p", "--project", help="关联项目，如 dev/scribe"),
+    kind: str = typer.Option(
+        "note",
+        "--type",
+        help="note | decision | activity（非 Cursor 投入，如「今天在 scribe 写了 2h」）",
+    ),
+):
+    """随手记录一条笔记/日志。
+
+    活动记录示例：qr log \"今天在 dev/scribe 写了 2h 章节草稿\" --type activity -p dev/scribe
+    """
     db.init_db()
     if kind == "decision" and not text.strip().startswith("#"):
         text = (
@@ -612,8 +778,11 @@ def log(text: str = typer.Argument(..., help="笔记内容"),
             "## 原因\n\n"
             + text
         )
+    if kind == "activity" and not text.strip().startswith("[活动]"):
+        text = f"[活动] {text.strip()}"
+    proj = project.strip() or None
     with db.session() as conn:
-        notes.add_note(conn, text, tags=tags, kind=kind)
+        notes.add_note(conn, text, tags=tags, kind=kind, project=proj)
     console.print("[green]✓[/] 已记录")
 
 
@@ -693,25 +862,124 @@ def standards_revise(
         "--from-conversations",
         help="纳入全部 Cursor 对话摘录（含界面习惯写入第六章）",
     ),
+    yes: bool = typer.Option(False, "--yes", "-y", help="跳过确认直接应用修订"),
 ):
     """根据近期行为/对话，用本地模型生成新版全局规范（保留历史）。"""
+    from . import standards_revision
+
     governance.ensure_standards()
+    cfg = config.load_config()
     try:
         label = "对话与行为" if from_conversations else "行为"
         with console.status(f"分析最近一{period}{label}并修订规范中..."):
-            if from_conversations:
-                new, recorded, changed = governance.revise_from_conversations(period)
+            if yes or not standards_revision.needs_confirmation(cfg):
+                if from_conversations:
+                    new, recorded, changed, pending = governance.revise_from_conversations(
+                        period, confirm=False
+                    )
+                else:
+                    new, recorded, changed, pending = governance.revise_from_behavior(
+                        period, confirm=False
+                    )
             else:
-                new, recorded, changed = governance.revise_from_behavior(period)
+                new, current, note = governance.propose_global_revision(
+                    period, from_conversations=from_conversations
+                )
+                changed = governance.normalize_for_compare(current) != governance.normalize_for_compare(
+                    new
+                )
+                if not changed:
+                    recorded, pending = False, False
+                else:
+                    diff = standards_revision.diff_preview(current, new)
+                    console.print("\n[bold]修订 diff 预览[/]（§一～§六 章节边界见草案）")
+                    for sec in diff.get("sections") or []:
+                        console.print(f"  [dim]§{sec['section']}[/] {sec['title']}")
+                    console.print(standards_revision.format_cli_diff(diff))
+                    if typer.confirm("应用此修订到生效规范？", default=False):
+                        recorded = governance.save_standards(new, note=note)
+                        standards_revision.clear_pending()
+                        pending = False
+                    else:
+                        standards_revision.store_pending(
+                            before=current,
+                            after=new,
+                            note=f"待确认：{note}",
+                            period=period,
+                            from_conversations=from_conversations,
+                            source="cli",
+                        )
+                        recorded, pending = False, True
     except (OllamaError, ValueError) as e:
         console.print(f"[red]✗[/] {e}"); raise typer.Exit(1)
     if not changed:
         console.print("[yellow]![/] 模型输出与当前规范无实质差异，正文未变，未新建版本")
+    elif pending:
+        console.print(
+            "[yellow]![/] 修订草案已保存为待确认（未覆盖当前规范）。"
+            "执行 [bold]qr standards-confirm[/] 应用，或 Web 规范页确认。"
+        )
     elif not recorded:
         console.print("[green]✓[/] 已更新生效规范（与上一归档版相同，未新建版本）")
     else:
         console.print("[green]✓[/] 已生成新版规范并存档")
-    console.print(Markdown(new))
+    if pending:
+        console.print(Markdown(new))
+    else:
+        console.print(Markdown(governance.read_standards()))
+
+
+@app.command(name="standards-confirm")
+def standards_confirm_cmd(
+    note: str = typer.Option("", "--note", help="确认备注（写入沿革）"),
+    reject: bool = typer.Option(False, "--reject", help="丢弃待确认修订"),
+):
+    """应用或丢弃待确认的规范修订草案。"""
+    from . import standards_revision
+
+    governance.ensure_standards()
+    pending = standards_revision.load_pending()
+    if not pending:
+        console.print("[yellow]![/] 当前没有待确认的规范修订")
+        raise typer.Exit(0)
+    if reject:
+        standards_revision.reject_pending()
+        console.print("[green]✓[/] 已丢弃待确认修订")
+        return
+    diff = pending.get("diff") or {}
+    console.print("[bold]待确认修订[/]")
+    for sec in diff.get("sections") or []:
+        console.print(f"  [dim]§{sec['section']}[/] {sec['title']}")
+    console.print(standards_revision.format_cli_diff(diff))
+    if not typer.confirm("确认应用到生效规范？", default=True):
+        console.print("[dim]已取消[/]")
+        raise typer.Exit(0)
+    try:
+        content, recorded = standards_revision.confirm_pending(note=note)
+    except ValueError as e:
+        console.print(f"[red]✗[/] {e}"); raise typer.Exit(1)
+    if recorded:
+        console.print("[green]✓[/] 已确认并新建归档版本")
+    else:
+        console.print("[green]✓[/] 已确认（与上一归档版相同，未新建版本）")
+    console.print(Markdown(content))
+
+
+@app.command(name="standards-pending")
+def standards_pending_cmd():
+    """查看待确认的规范修订草案与 diff。"""
+    from . import standards_revision
+
+    pending = standards_revision.load_pending()
+    if not pending:
+        console.print("[dim]无待确认修订[/]")
+        raise typer.Exit(0)
+    diff = pending.get("diff") or {}
+    console.print(f"[bold]待确认[/] · {pending.get('note', '')}")
+    for sec in diff.get("sections") or []:
+        console.print(f"  [dim]§{sec['section']}[/] {sec['title']}")
+    console.print(standards_revision.format_cli_diff(diff))
+    console.print("\n[dim]应用：qr standards-confirm · 丢弃：qr standards-confirm --reject[/]")
 
 
 @app.command(name="project-standards")
@@ -1001,9 +1269,20 @@ def cursor_watch(interval: int = typer.Option(0, help="轮询间隔(秒)，0=读
 
 
 @app.command()
-def track(interval: int = typer.Option(tracker.SAMPLE_INTERVAL, help="采样间隔(秒)"),
-          idle: int = typer.Option(tracker.IDLE_THRESHOLD, help="空闲阈值(秒)")):
+def track(
+    interval: int = typer.Option(tracker.SAMPLE_INTERVAL, help="采样间隔(秒)"),
+    idle: int = typer.Option(tracker.IDLE_THRESHOLD, help="空闲阈值(秒)"),
+    pause: str = typer.Option("", "--pause", help="暂停采集：2h / 30m / off（设置后退出，不常驻）"),
+):
     """常驻运行应用使用追踪器（记录焦点应用时长/频率）。供 launchd 调用。"""
+    if pause:
+        try:
+            result = tracker.set_pause(pause)
+        except ValueError as e:
+            console.print(f"[red]{e}[/]")
+            raise typer.Exit(1)
+        console.print(f"[green]✓[/] {result.get('message', '')}")
+        return
     db.init_db()
     console.print(f"[green]✓[/] 应用追踪运行中（每 {interval}s 采样，空闲>{idle}s 不计时）。Ctrl+C 退出")
     tracker.run(interval=interval, idle_threshold=idle)
@@ -1189,6 +1468,44 @@ def workspace_migrate(
     workspace.apply_workspace_config(cfg)
     console.print(f"[green]✓[/] 已迁移 {sum(1 for r in done if r.get('status')=='moved')} 个，配置已指向 ~/QR")
     console.print("[dim]建议: qr index --reindex[/]")
+
+
+@workspace_app.command("sync-cursor-roots")
+def workspace_sync_cursor_roots(
+    dry_run: bool = typer.Option(False, "--dry-run", help="仅预览，不写注册表"),
+):
+    """扫描 ~/.cursor/projects，刷新 slug → project_id 注册表。"""
+    payload = workspace.sync_cursor_roots_registry(persist=not dry_run)
+    roots = payload.get("roots") or {}
+    unmapped = payload.get("unmapped") or []
+    console.print(f"[green]✓[/] 已注册 {len(roots)} 个 Cursor 工作区 slug")
+    if unmapped:
+        console.print(f"[yellow]![/] 未映射 {len(unmapped)} 个（采集将标 needs_review）")
+        for slug in unmapped[:12]:
+            console.print(f"  · {slug}")
+        if len(unmapped) > 12:
+            console.print(f"  … 另有 {len(unmapped) - 12} 个")
+    if not dry_run:
+        console.print(f"[dim]注册表: {workspace.CURSOR_ROOTS_PATH}[/]")
+
+
+@workspace_app.command("remap-cursor")
+def workspace_remap_cursor(
+    dry_run: bool = typer.Option(False, "--dry-run", help="仅统计，不写库"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="跳过确认"),
+):
+    """按 cursor_roots 修正历史 Cursor 事件的 project 字段。"""
+    db.init_db()
+    if not dry_run and not yes:
+        if not typer.confirm("将按注册表修正 Cursor 事件 project，继续？"):
+            raise typer.Exit(0)
+    with db.session() as conn:
+        stats = workspace.remap_cursor_event_projects(conn, dry_run=dry_run)
+    mode = "预览" if dry_run else "完成"
+    console.print(
+        f"[green]✓[/] {mode}：更新 {stats['updated']} · 清空错误 project {stats['cleared']} · "
+        f"跳过 {stats['skipped']}"
+    )
 
 
 @workspace_app.command("audit")
@@ -1395,6 +1712,11 @@ def update(
         "--revise-standards",
         help="据近期 Cursor 对话修订全局与活跃项目规范（忽略间隔）",
     ),
+    index_health: bool = typer.Option(
+        False,
+        "--index-health",
+        help="结束后清理源文件已消失的孤儿索引（亦受 index_health_auto 周期控制）",
+    ),
 ):
     """一键更新：采集 + 索引（+可选总结 / 规范自动修订）。供定时任务调用。"""
     from . import standards_auto
@@ -1460,6 +1782,28 @@ def update(
                     console.print("[dim]进化计划已同步[/]")
         except Exception as e:
             console.print(f"[yellow]![/] 进化计划同步: {e}")
+    from . import index_health as ih, ops_timeline
+
+    with db.session() as conn:
+        ih_rep = ih.maybe_auto_cleanup(conn, force=index_health)
+    if ih_rep and ih_rep.get("ran"):
+        cl = ih_rep.get("cleanup") or {}
+        console.print(
+            f"[green]✓[/] 索引健康：清理孤儿 {cl.get('documents_removed', 0)} 文档 · "
+            f"{cl.get('chunks_removed', 0)} 块"
+        )
+        for p in ih_rep.get("sample_paths") or []:
+            console.print(f"  [dim]· {p}[/]")
+        ops_timeline.log_safe(
+            action="index.health_auto",
+            title="[知识库] 自动清理孤儿索引",
+            content=(
+                f"清理 {cl.get('documents_removed', 0)} 文档 · "
+                f"{cl.get('chunks_removed', 0)} 块"
+            ),
+        )
+    elif index_health and ih_rep and not ih_rep.get("ran"):
+        console.print("[dim]索引健康：无孤儿文档需清理[/]")
 
 
 @app.command(name="standards-auto")
@@ -1488,6 +1832,12 @@ def standards_auto_cmd(
         console.print(f"[dim]已跳过: {res.get('reason')}[/]")
         console.print("[dim]使用 --force 可立即执行[/]")
         return
+    g = res.get("global") or {}
+    if g.get("pending"):
+        console.print(
+            "[yellow]![/] 全局规范修订已生成待确认草案（未覆盖当前规范）。"
+            "执行 [bold]qr standards-confirm[/] 或 Web 规范页确认。"
+        )
     console.print(json.dumps(res, ensure_ascii=False, indent=2))
     console.print(f"[dim]日志: {config.LOGS_DIR / 'standards-auto.log'}[/]")
 
@@ -1622,8 +1972,53 @@ def digest_cmd(days: int = typer.Option(1, "--days", help="回溯天数")):
 app.command(name="digest")(digest_cmd)
 
 
-def compliance_cmd():
-    """检查索引内各项目是否符合个人规范结构。"""
+def compliance_cmd(
+    ship: bool = typer.Option(False, "--ship", help="设计者验收清单（决策 + ship-check/doctor）"),
+    days: int = typer.Option(0, "--days", help="检查天数，默认 config compliance_ship_days"),
+):
+    """检查索引内各项目是否符合个人规范结构；--ship 检查近 N 天决策与验收。"""
+    if ship:
+        db.init_db()
+        with db.session() as conn:
+            rep = compliance.scan_ship_checks(
+                conn, days=days if days > 0 else None,
+            )
+        span = rep["days"]
+        console.print(f"[bold]设计者验收清单[/] · 近 {span} 天活跃项目")
+        if rep.get("doctor_recent"):
+            console.print("[dim]本机近期待办：已检测到 qr doctor 运行记录[/]")
+        t = Table(title="项目验收")
+        t.add_column("项目")
+        t.add_column("活跃")
+        t.add_column("决策")
+        t.add_column("验收")
+        t.add_column("说明")
+        for p in rep.get("projects", []):
+            if not p.get("active"):
+                continue
+            dec = str(p.get("decisions", 0))
+            ship_mark = "✓" if p.get("ship_check") or rep.get("doctor_recent") else "✗"
+            warn = "; ".join(p.get("warnings") or []) or "—"
+            t.add_row(
+                p["project"],
+                "是",
+                dec,
+                ship_mark,
+                warn,
+            )
+        console.print(t)
+        if rep.get("missing_decisions"):
+            console.print(
+                f"[yellow]缺决策[/]: {', '.join(rep['missing_decisions'])}"
+            )
+        if rep.get("missing_ship"):
+            console.print(
+                f"[yellow]缺验收[/]: {', '.join(rep['missing_ship'])}"
+            )
+        if rep.get("ok"):
+            console.print("[green]✓[/] 活跃项目决策与验收均达标")
+        raise typer.Exit(0 if rep.get("ok") else 1)
+
     rows = compliance.scan_index_roots()
     t = Table(title="项目规范合规检查")
     t.add_column("项目")
@@ -1657,6 +2052,67 @@ def export_obsidian_cmd(dest: str = typer.Option("", help="导出目录，默认
     console.print(f"[green]✓[/] 已导出到 {path}")
 
 
+@app.command(name="export-bundle")
+def export_bundle_cmd(
+    dest: str = typer.Option("", "--dest", help="输出 zip 路径，默认 ~/.qr/bundles/"),
+):
+    """导出迁移包：qr.db + config + standards（不含 ~/QR 源码）。"""
+    from . import bundle_export
+
+    try:
+        result = bundle_export.export_bundle(dest)
+    except OSError as e:
+        console.print(f"[red]{e}[/]")
+        raise typer.Exit(1)
+    console.print(f"[green]✓[/] 迁移包 → {result['path']}")
+    console.print(f"[dim]含: {', '.join(result.get('files') or [])}[/]")
+
+
+@app.command(name="import-bundle")
+def import_bundle_cmd(
+    path: str = typer.Argument(..., help="迁移包 zip 路径"),
+    dest: str = typer.Option("", "--dest", help="目标目录，默认 ~/.qr"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="仅校验不解压"),
+):
+    """导入迁移包到新机器或目录。"""
+    from . import bundle_export
+
+    result = bundle_export.import_bundle(path, dest_home=dest, dry_run=dry_run)
+    if not result.get("ok"):
+        for err in result.get("errors") or [result.get("error", "失败")]:
+            console.print(f"[red]✗[/] {err}")
+        raise typer.Exit(1)
+    if dry_run:
+        console.print(f"[green]✓[/] 校验通过 · {', '.join(result.get('verified') or [])}")
+        console.print(f"[dim]将导入到 {result.get('dest')}[/]")
+    else:
+        console.print(f"[green]✓[/] 已导入到 {result.get('dest')}")
+
+
+cursor_app = typer.Typer(help="Cursor 归档与敏感内容")
+app.add_typer(cursor_app, name="cursor")
+
+
+@cursor_app.command("sanitize")
+def cursor_sanitize_cmd(
+    limit: int = typer.Option(25, "--limit", help="最多列出条数"),
+):
+    """扫描时间线 cursor 事件中的疑似密钥/令牌模式。"""
+    from . import sensitive_scan
+
+    db.init_db()
+    with db.session() as conn:
+        hits = sensitive_scan.scan_cursor_events(conn)
+    if not hits:
+        console.print("[green]✓[/] 未发现疑似敏感模式")
+        return
+    console.print(f"[yellow]![/] 发现 {len(hits)} 条含敏感模式（显示前 {limit} 条）")
+    for h in hits[:limit]:
+        console.print(f"  · {h['uid']}: {', '.join(h['patterns'])}")
+        console.print(f"    [dim]{h['title']}[/]")
+    console.print("[dim]请从 Cursor 归档源文件删除敏感内容后重新 ingest[/]")
+
+
 @app.command()
 def project(
     name: str = typer.Argument(..., help="项目 ID，如 dev/qr"),
@@ -1669,6 +2125,10 @@ def project(
         console.print(f"[red]{data['error']}[/]")
         raise typer.Exit(1)
     console.print(f"[bold]{data['project']}[/] · 近 {data['window_days']} 天")
+    if data.get("cursor_open_path"):
+        console.print(f"\n[bold]Cursor 打开路径[/] {data['cursor_open_path']}")
+        if data.get("cursor_slug"):
+            console.print(f"[dim]  ~/.cursor/projects/{data['cursor_slug']}[/]")
     if data.get("git_commits"):
         console.print("\n[bold]Git[/]")
         for c in data["git_commits"][:5]:
@@ -1677,6 +2137,11 @@ def project(
         console.print("\n[bold]Cursor[/]")
         for t in data["cursor_topics"][:5]:
             console.print(f"  · {t}")
+    act = int(data.get("activity_notes") or 0)
+    if act:
+        console.print(f"\n[bold]活动记录[/] {act} 条（qr log --type activity）")
+    elif data.get("notes_count"):
+        console.print(f"\n[dim]笔记 {data['notes_count']} 条 · 活动记录 0[/]")
     comp = data.get("compliance")
     if comp:
         st = "[green]合规[/]" if comp.get("ok") else "[yellow]待改进[/]"
@@ -1796,8 +2261,10 @@ def ai_assess_cmd(
     else:
         console.print(Markdown(ai_assess.format_markdown(snap)))
     if save:
+        tpl = ai_assess.ensure_full_report_template()
         path = ai_assess.save_daily_report(snap=snap)
         console.print(f"[green]✓[/] 已保存 {path}")
+        console.print(f"[dim]完整版评测模板: {tpl}[/]")
 
 
 eval_app = typer.Typer(help="RAG / 模型评测（内置用例 + HTML 报告）")
@@ -1995,6 +2462,42 @@ def prompts_delete(
     console.print()
 
 
+@prompts_app.command("suggest-merge")
+def prompts_suggest_merge(
+    threshold: float = typer.Option(0.72, "--threshold", help="相似度阈值 0–1"),
+    limit: int = typer.Option(200, "--limit", help="扫描收件箱上限"),
+    json_out: bool = typer.Option(False, "--json", help="JSON 输出"),
+):
+    """收件箱片段相似聚类，给出可合并建议。"""
+    from . import prompt_guides
+
+    db.init_db()
+    with db.session() as conn:
+        clusters = prompt_guides.suggest_merge_clusters(
+            conn, threshold=threshold, limit=limit,
+        )
+    if json_out:
+        console.print(json.dumps(clusters, ensure_ascii=False, indent=2))
+        return
+    if not clusters:
+        console.print("[dim]未发现可合并的相似片段组[/]")
+        return
+    t = Table(title="建议合并")
+    t.add_column("片段 id")
+    t.add_column("项目")
+    t.add_column("条数")
+    t.add_column("预览")
+    for c in clusters:
+        t.add_row(
+            ",".join(str(x) for x in c["fragment_ids"]),
+            c.get("project") or "—",
+            str(c["count"]),
+            c.get("preview") or "",
+        )
+    console.print(t)
+    console.print("[dim]合并: qr prompts merge <id1,id2,...>[/]")
+
+
 @prompts_app.command("merge")
 def prompts_merge(
     ids: str = typer.Argument(..., help="碎片 id，逗号分隔，如 1,2,3"),
@@ -2157,11 +2660,18 @@ def eval_monthly_cmd(
     with console.status("运行月度评测（检索基线 + AI 快照）…"):
         result = monthly_eval.run_monthly(save=save)
     rag = result.get("rag") or {}
+    ext = (result.get("rag_split") or {}).get("extended") or {}
     console.print(
-        f"[green]检索基线[/] {rag.get('retrieval_rate')}% "
+        f"[green]检索 core[/] {rag.get('retrieval_rate')}% "
         f"({rag.get('retrieval_ok')}/{rag.get('cases')}) · "
         f"泄漏 {rag.get('forbidden_hits')} · 均 {rag.get('search_avg')}s"
     )
+    if ext.get("cases"):
+        console.print(
+            f"[dim]extended[/] {ext.get('retrieval_rate')}% "
+            f"({ext.get('retrieval_ok')}/{ext.get('cases')}) · "
+            f"泄漏 {ext.get('forbidden_hits')}"
+        )
     ai = result.get("ai_assess") or {}
     console.print(
         f"[green]AI 快照[/] Cursor 归档 {ai.get('cursor_total')} · "
@@ -2175,7 +2685,13 @@ def eval_monthly_cmd(
 
 
 @eval_app.command("rag")
-def eval_rag_only():
+def eval_rag_only(
+    extended: bool = typer.Option(
+        False,
+        "--extended",
+        help="同时跑 extended 题集并分栏显示 core / extended 命中率",
+    ),
+):
     """仅跑检索基线（不调用四模型生成），用于快速检查索引质量。"""
     import importlib.util
 
@@ -2187,16 +2703,34 @@ def eval_rag_only():
     spec.loader.exec_module(mod)
     from . import eval_suite
 
-    rows = mod.run_retrieval_baseline()
-    s = eval_suite.summarize_rag(rows)
-    console.print(
-        f"[green]检索命中率[/] {s['retrieval_rate']}% ({s['retrieval_ok']}/{s['cases']}) · "
-        f"考题泄漏 {s['forbidden_hits']} 题 · 均检索 {s['search_avg']}s"
-    )
+    rows = mod.run_retrieval_baseline(include_extended=extended)
+    if extended:
+        split = eval_suite.summarize_rag_split(rows)
+        core = split["core"]
+        ext = split["extended"]
+        console.print(
+            f"[bold]core 门禁[/] {core['retrieval_rate']}% "
+            f"({core['retrieval_ok']}/{core['cases']}) · "
+            f"泄漏 {core['forbidden_hits']} · 均 {core['search_avg']}s"
+        )
+        console.print(
+            f"[bold]extended[/] {ext['retrieval_rate']}% "
+            f"({ext['retrieval_ok']}/{ext['cases']}) · "
+            f"泄漏 {ext['forbidden_hits']} · 均 {ext['search_avg']}s"
+        )
+        console.print(f"[dim]题集说明: {eval_suite.EXTENDED_CASES_DOC}[/]")
+    else:
+        s = eval_suite.summarize_rag(rows)
+        console.print(
+            f"[green]检索命中率[/] {s['retrieval_rate']}% ({s['retrieval_ok']}/{s['cases']}) · "
+            f"考题泄漏 {s['forbidden_hits']} 题 · 均检索 {s['search_avg']}s"
+        )
+        console.print("[dim]扩展题集：qr eval rag --extended[/]")
     for r in rows:
         mark = "✓" if r["retrieval_ok"] else "✗"
         leak = " [泄漏]" if r.get("retrieval_forbidden") else ""
-        console.print(f"  {mark} {r['case']}{leak}  {r['search_s']:.2f}s")
+        tier = r.get("tier", "core")
+        console.print(f"  {mark} [{tier}] {r['case']}{leak}  {r['search_s']:.2f}s")
 
 
 def main():

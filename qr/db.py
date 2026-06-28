@@ -318,7 +318,15 @@ def session() -> Iterator[sqlite3.Connection]:
     conn = connect()
     try:
         yield conn
-        conn.commit()
+
+        def _commit() -> None:
+            conn.commit()
+
+        run_db_retry(_commit)
+    except Exception:
+        with contextlib.suppress(Exception):
+            conn.rollback()
+        raise
     finally:
         conn.close()
 

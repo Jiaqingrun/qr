@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 from unittest import mock
 
@@ -8,6 +9,26 @@ from qr import config, db, prompt_guides
 
 
 class PromptGuideQueryTests(unittest.TestCase):
+    def setUp(self):
+        from qr import cursor_prompt_time as cpt
+        from qr import cursor_session_title as cst
+
+        cpt.clear_transcript_cache()
+        cst._load_titles_cached.cache_clear()
+
+    @contextmanager
+    def _temp_db(self):
+        with tempfile.TemporaryDirectory() as td:
+            home = Path(td) / ".qr"
+            home.mkdir()
+            db_path = home / "qr.db"
+            with mock.patch.object(config, "QR_HOME", home), mock.patch.object(
+                config, "DB_PATH", db_path
+            ):
+                db.init_db()
+                with db.session() as conn:
+                    yield conn
+
     def test_is_archive_path(self):
         self.assertTrue(
             prompt_guides._is_archive_path(
@@ -31,10 +52,7 @@ class PromptGuideQueryTests(unittest.TestCase):
 
 
     def test_shield_event_writes_dismiss_and_removes_event(self):
-        from qr import db, prompt_guides
-
-        db.init_db()
-        with db.session() as conn:
+        with self._temp_db() as conn:
             uid = f"cursor:test-session-{uuid.uuid4().hex[:8]}:q0"
             conn.execute(
                 "INSERT INTO events(uid,ts,source,project,title,content,meta) "
@@ -51,19 +69,17 @@ class PromptGuideQueryTests(unittest.TestCase):
     def test_sync_skips_non_execute_session_title(self):
         from unittest import mock
 
-        from qr import db, prompt_guides
-
-        db.init_db()
         sid = f"title-filter-{uuid.uuid4().hex[:8]}"
-        with db.session() as conn:
+        now = db.now()
+        with self._temp_db() as conn:
             conn.execute(
                 "INSERT INTO events(uid,ts,source,project,title,content,meta) "
                 "VALUES(?, ?, 'cursor', 'qr', 'q1', '真实提问', '{}')",
-                (f"cursor:{sid}:q0", 1),
+                (f"cursor:{sid}:q0", now),
             )
             conn.commit()
             with mock.patch(
-                "qr.prompt_guides.cst.load_session_titles",
+                "qr.cursor_session_title.load_session_titles",
                 return_value={sid: "参考-测试对话"},
             ):
                 prompt_guides.sync_cursor_inbox(conn)
@@ -76,28 +92,49 @@ class PromptGuideQueryTests(unittest.TestCase):
     def test_sync_includes_execute_session_title(self):
         from unittest import mock
 
-        from qr import db, prompt_guides
+        from qr import cursor_prompt_time as cpt
+        from qr import cursor_session_title as cst
 
-        db.init_db()
         sid = f"exec-filter-{uuid.uuid4().hex[:8]}"
-        with db.session() as conn:
+        now = db.now()
+        titles = {sid: "执行-测试任务"}
+        cfg = {
+            "prompt_guides_auto_sync": True,
+            "cursor_projects_dir": "~/.cursor/projects",
+        }
+        cst._load_titles_cached.cache_clear()
+        cpt.clear_transcript_cache()
+        with self._temp_db() as conn:
             conn.execute(
                 "INSERT INTO events(uid,ts,source,project,title,content,meta) "
                 "VALUES(?, ?, 'cursor', 'qr', '部署脚本', '请写部署脚本', '{}')",
-                (f"cursor:{sid}:q0", 1),
+                (f"cursor:{sid}:q0", now),
             )
             conn.commit()
             with mock.patch(
-                "qr.prompt_guides.cst.load_session_titles",
-                return_value={sid: "执行-测试任务"},
+                "qr.cursor_session_title.load_session_titles",
+                return_value=titles,
+            ), mock.patch(
+                "qr.config.load_config",
+                return_value=cfg,
+            ), mock.patch(
+                "qr.cursor_prompt_time.resolve_query_time",
+                return_value=(now, 0, None),
+            ), mock.patch(
+                "qr.cursor_prompt_time._transcript_map",
+                return_value={},
             ):
-                stats = prompt_guides.sync_cursor_inbox(conn)
-            self.assertEqual(stats.get("new"), 1)
+                rep = prompt_guides.sync_cursor_inbox(conn)
+            self.assertEqual(
+                rep.get("new"),
+                1,
+                f"sync 未写入碎片: {rep}",
+            )
             row = conn.execute(
                 "SELECT content FROM prompt_guide_fragments WHERE event_uid=?",
                 (f"cursor:{sid}:q0",),
             ).fetchone()
-            self.assertIsNotNone(row)
+            self.assertIsNotNone(row, "执行- 标题的 Cursor 事件应进入引导语收件箱")
             self.assertEqual(row["content"], "请写部署脚本")
 
     def test_purge_non_execute_keeps_execute_guide(self):
@@ -165,7 +202,7 @@ class PromptGuideQueryTests(unittest.TestCase):
                     )
                     conn.commit()
                     with mock.patch(
-                        "qr.prompt_guides.cst.load_session_titles",
+                        "qr.cursor_session_title.load_session_titles",
                         return_value=titles,
                     ):
                         r = prompt_guides.purge_non_execute_prompts(conn, dry_run=False)
@@ -183,10 +220,7 @@ class PromptGuideQueryTests(unittest.TestCase):
                     )
 
     def test_sync_skips_dismissed(self):
-        from qr import db, prompt_guides
-
-        db.init_db()
-        with db.session() as conn:
+        with self._temp_db() as conn:
             uid = f"cursor:shield-test-{uuid.uuid4().hex[:8]}:q0"
             prompt_guides._dismiss_events(conn, [uid])
             conn.execute(

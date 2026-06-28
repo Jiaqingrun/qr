@@ -79,7 +79,7 @@ def _rag_summary(*, quick: bool, state: dict[str, Any]) -> dict[str, Any]:
     mod = importlib.util.module_from_spec(spec)
     assert spec.loader
     spec.loader.exec_module(mod)
-    rows = mod.run_retrieval_baseline()
+    rows = mod.run_retrieval_baseline(include_extended=False)
     summary = eval_suite.summarize_rag(rows)
     state["rag_cache"] = {"ts": now, "summary": summary}
     return summary

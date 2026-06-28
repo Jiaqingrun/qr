@@ -61,11 +61,11 @@ class TestTimelineSearch(unittest.TestCase):
         conn = _temp_conn()
         timeline_search.ensure_schema(conn)
         conn.execute(
-            "INSERT INTO events(uid,ts,source,project,title,content) VALUES(?,?,?,?,?,?)",
-            ("u1", 100, "note", "qr", "SQLite 决策", "选用 SQLite"),
+            "INSERT INTO events(uid,ts,source,project,title,content,meta) VALUES(?,?,?,?,?,?,?)",
+            ("note:note:fts-u1", 100, "note", "qr", "SQLite 决策", "选用 SQLite", '{"kind":"note"}'),
         )
         timeline_search.index_event(
-            conn, uid="u1", source="note", project="qr",
+            conn, uid="note:note:fts-u1", source="note", project="qr",
             title="SQLite 决策", content="选用 SQLite",
         )
         conn.commit()

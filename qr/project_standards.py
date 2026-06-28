@@ -51,6 +51,9 @@ _GLOBAL_IN_PROJECT_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"界面与视觉规范（全局）", re.I), "含全局 UI 章节"),
     (re.compile(r"qr\s+standards-revise", re.I), "含全局规范修订命令"),
     (re.compile(r"qr\s+standards\s+--edit", re.I), "含全局规范编辑命令"),
+    (re.compile(r"系统 Python.*保持纯净", re.I), "含全局 Python 环境条文"),
+    (re.compile(r"conda create -n", re.I), "含 conda 环境创建条文"),
+    (re.compile(r"/opt/anaconda3", re.I), "含全局 conda 路径约定"),
 ]
 
 _INVALID_PROJECT_LINE = re.compile(

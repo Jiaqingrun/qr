@@ -6,7 +6,16 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from . import config, db, health, importer, permissions
+from . import backup_ops, config, db, health, importer, permissions, tracker
+
+
+def _tracker_pause_summary(cfg: dict) -> dict[str, Any]:
+    st = tracker.pause_status()
+    return {
+        **st,
+        "exclude_apps": list(cfg.get("tracker_exclude_apps") or []),
+        "exclude_bundles": list(cfg.get("tracker_exclude_bundles") or []),
+    }
 
 _AGENT_LABELS = [
     "com.qr.tracker",
@@ -164,6 +173,7 @@ def overview(conn=None) -> dict[str, Any]:
             "backups": list_backups(),
             "permissions": permissions.probe_access(),
             "trusted": permissions.trusted_executables(),
+            "tracker": _tracker_pause_summary(cfg),
             "config": {
                 "path": str(config.CONFIG_PATH),
                 "index_roots": cfg.get("index_roots", []),
@@ -174,6 +184,7 @@ def overview(conn=None) -> dict[str, Any]:
             },
             "qr_home": str(config.QR_HOME),
             "db_path": str(config.DB_PATH),
+            "latest_backup": backup_ops.latest_backup_info(),
         }
     finally:
         if own:

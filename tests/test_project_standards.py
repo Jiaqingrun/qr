@@ -191,12 +191,16 @@ class _FakeConn:
 class TestStandardsAuto(unittest.TestCase):
     def test_should_run_respects_interval(self):
         from qr import standards_auto
+        import time
 
         cfg = {"standards_auto_revise": True, "standards_auto_interval_hours": 168}
-        with mock.patch.object(standards_auto.db, "session") as sess:
+        with mock.patch.object(standards_auto.db, "session") as sess, mock.patch.object(
+            standards_auto.db,
+            "get_state",
+            return_value=str(int(time.time()) - 100),
+        ):
             conn = mock.MagicMock()
             sess.return_value.__enter__.return_value = conn
-            standards_auto.db.get_state = mock.Mock(return_value=str(int(__import__("time").time()) - 100))
             self.assertFalse(standards_auto.should_run(cfg, force=False))
             self.assertTrue(standards_auto.should_run(cfg, force=True))
 

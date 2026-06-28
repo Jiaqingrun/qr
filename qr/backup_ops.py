@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import shutil
 import sqlite3
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -61,6 +62,20 @@ def verify_backup(path: Path | str) -> dict[str, Any]:
         return out
 
 
+def verify_backup_from_bytes(data: bytes) -> dict[str, Any]:
+    """校验内存中的 qr.db 字节（迁移包导入用）。"""
+    import tempfile
+
+    out: dict[str, Any] = {"ok": False}
+    if len(data) < 4096:
+        out["error"] = "文件过小，可能损坏"
+        return out
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=True) as tmp:
+        tmp.write(data)
+        tmp.flush()
+        return verify_backup(tmp.name)
+
+
 def prune_backups(keep: int | None = None) -> dict[str, Any]:
     cfg = config.load_config()
     keep_n = int(keep if keep is not None else cfg.get("backup_keep_count", 10))
@@ -74,6 +89,26 @@ def prune_backups(keep: int | None = None) -> dict[str, Any]:
         except OSError:
             pass
     return {"kept": min(len(files), keep_n), "removed": removed}
+
+
+def latest_backup_info() -> dict[str, Any]:
+    """最近一份备份的年龄与校验结果。"""
+    files = list_backup_files()
+    if not files:
+        return {"exists": False, "age_days": None, "verify": {"ok": False}}
+    p = files[0]
+    st = p.stat()
+    age_days = round((time.time() - st.st_mtime) / 86400, 1)
+    verify = verify_backup(p)
+    return {
+        "exists": True,
+        "path": str(p),
+        "name": p.name,
+        "age_days": age_days,
+        "mtime": datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M"),
+        "size_mb": verify.get("size_mb"),
+        "verify": verify,
+    }
 
 
 def run_backup(dest: str = "") -> dict[str, str]:

@@ -220,13 +220,15 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_pgf_inbox ON prompt_guide_fragments(guide_id);
         CREATE INDEX IF NOT EXISTS idx_pgf_ts ON prompt_guide_fragments(ts);
-        CREATE INDEX IF NOT EXISTS idx_pgf_session ON prompt_guide_fragments(cursor_session_id);
         """
     )
     db._ensure_column(conn, "prompt_guide_fragments", "cursor_session_id", "TEXT")
     db._ensure_column(conn, "prompt_guide_fragments", "query_index", "INTEGER")
     db._ensure_column(conn, "prompt_guide_fragments", "ts_estimated", "INTEGER DEFAULT 0")
     db._ensure_column(conn, "prompt_guide_fragments", "transcript_mtime", "INTEGER")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_pgf_session ON prompt_guide_fragments(cursor_session_id)"
+    )
     seed_types(conn)
 
 
@@ -467,12 +469,14 @@ def sync_cursor_inbox(conn: sqlite3.Connection) -> dict[str, int]:
     conn.commit()
     repair = repair_inbox_timestamps(conn)
     query_repair = repair_inbox_queries(conn)
+    prefix_rep = cst.refresh_prefix_annotations(conn, cfg=cfg)
     return {
         "new": new,
         "skipped": skipped,
         "excluded_by_session_title": excluded_title,
         "repair": repair,
         "query_repair": query_repair,
+        "prefix_annotations": prefix_rep,
     }
 
 
@@ -1200,6 +1204,60 @@ def recent_guide_projects(conn, start: int, end: int, *, limit: int = 4) -> list
         if len(out) >= limit:
             break
     return out
+
+
+def suggest_merge_clusters(
+    conn: sqlite3.Connection,
+    *,
+    threshold: float = 0.72,
+    limit: int = 200,
+) -> list[dict]:
+    """收件箱片段按字面相似度聚类，供合并建议。"""
+    from difflib import SequenceMatcher
+
+    ensure_schema(conn)
+    frags = list_fragments(conn, inbox_only=True, limit=limit, offset=0)
+    used: set[int] = set()
+    clusters: list[dict] = []
+
+    def _norm(text: str) -> str:
+        t = re.sub(r"\s+", " ", (text or "").strip().lower())
+        return t[:400]
+
+    def _sim(a: str, b: str) -> float:
+        if not a or not b:
+            return 0.0
+        if a == b:
+            return 1.0
+        return SequenceMatcher(None, a, b).ratio()
+
+    for i, fa in enumerate(frags):
+        fid_a = int(fa["id"])
+        if fid_a in used:
+            continue
+        group = [fa]
+        na = _norm(fa.get("content") or fa.get("preview") or "")
+        for fb in frags[i + 1 :]:
+            fid_b = int(fb["id"])
+            if fid_b in used:
+                continue
+            if fa.get("project") and fb.get("project") and fa["project"] != fb["project"]:
+                continue
+            nb = _norm(fb.get("content") or fb.get("preview") or "")
+            if _sim(na, nb) >= threshold:
+                group.append(fb)
+                used.add(fid_b)
+        if len(group) >= 2:
+            used.add(fid_a)
+            clusters.append({
+                "fragment_ids": [int(x["id"]) for x in group],
+                "project": group[0].get("project"),
+                "preview": (group[0].get("preview") or group[0].get("content") or "")[:80],
+                "count": len(group),
+                "similarity_hint": "literal",
+            })
+    clusters.sort(key=lambda x: -x["count"])
+    return clusters
 
 
 def stats(conn: sqlite3.Connection) -> dict:

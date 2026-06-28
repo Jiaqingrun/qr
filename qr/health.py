@@ -16,6 +16,78 @@ _SHELL_TS_RE = re.compile(r"^: \d+:\d+;")
 _STATUS_CACHE: dict[str, Any] = {"ts": 0.0, "payload": None}
 STATUS_CACHE_TTL = 45.0
 
+_SUSPICIOUS_CURSOR_PROJECTS = frozenset({"window", "qr", "QR"})
+_NUMERIC_PROJECT_RE = re.compile(r"^\d+$")
+
+
+def audit_cursor_workspace(
+    conn: sqlite3.Connection,
+    *,
+    days: int = 30,
+    cfg: dict | None = None,
+) -> dict[str, Any]:
+    """检测 Cursor 事件 project 是否为已注册 ~/QR 工作区路径。"""
+    from . import workspace
+
+    cfg = cfg or config.load_config()
+    since = db.now() - max(1, days) * 86400
+    rows = conn.execute(
+        "SELECT project, COUNT(*) c FROM events "
+        "WHERE source='cursor' AND ts>=? GROUP BY project ORDER BY c DESC",
+        (since,),
+    ).fetchall()
+    bad: list[dict[str, Any]] = []
+    aligned: list[dict[str, Any]] = []
+    ignore = set(cfg.get("cursor_workspace_ignore", []) or [])
+
+    for r in rows:
+        pid = (r["project"] or "").strip()
+        if not pid or pid in ignore:
+            continue
+        reason = None
+        lower = pid.lower()
+        if lower in _SUSPICIOUS_CURSOR_PROJECTS or pid in _SUSPICIOUS_CURSOR_PROJECTS:
+            reason = "Cursor 打开了错误工作区（如整盘 QR 根或 window）"
+        elif _NUMERIC_PROJECT_RE.match(pid):
+            reason = "project 为纯数字 id，无法对应 ~/QR 项目"
+        elif not workspace.is_listable_project_id(pid, cfg):
+            norm = workspace.normalize_project_id(pid, cfg)
+            if not norm or not workspace.is_listable_project_id(norm, cfg):
+                reason = "未注册的工作区路径"
+        if reason:
+            bad.append({"project": pid, "count": int(r["c"]), "reason": reason})
+        elif workspace.is_listable_project_id(pid, cfg):
+            proj_dir = workspace.resolve_project_dir(pid, cfg)
+            aligned.append({
+                "project": pid,
+                "path": str(proj_dir) if proj_dir else None,
+                "count": int(r["c"]),
+            })
+
+    return {
+        "days": days,
+        "suspicious": bad,
+        "aligned": aligned[:20],
+        "ok": not bad,
+    }
+
+
+def cursor_alignment_for_web(cfg: dict | None = None) -> dict[str, Any]:
+    """Web 设置：列出应对齐的 Cursor 项目根。"""
+    from . import workspace
+
+    cfg = cfg or config.load_config()
+    root = workspace.workspace_root(cfg)
+    items: list[dict[str, Any]] = []
+    for cat in workspace.categories(cfg):
+        for pid, proj_dir in workspace.iter_category_project_dirs(root, cat):
+            items.append({
+                "project": pid,
+                "cursor_open_path": str(proj_dir.resolve()),
+                "slug": workspace._cursor_dir_slug(proj_dir),
+            })
+    return {"workspace_root": str(root), "projects": items}
+
 
 def invalidate_status_cache() -> None:
     _STATUS_CACHE["ts"] = 0.0
@@ -226,23 +298,26 @@ def diagnose(conn: sqlite3.Connection | None = None) -> dict:
                 ok_items.append("Ollama 按需模式（提问时自动启动，结束后释放）")
             else:
                 ol = Ollama()
-                ol.health()
                 try:
-                    ol.probe_embed()
-                    ok_items.append("Ollama 可用")
-                except OllamaError as e:
-                    fix = "启动 ollama 并拉取 config 中的 embed/chat 模型"
-                    if _is_retriable_embed_error(str(e)):
-                        fix = (
-                            "重启 Ollama 并设置 OLLAMA_FLASH_ATTENTION=false，"
-                            "然后 brew services restart ollama"
-                        )
-                    issues.append({
-                        "area": "ollama",
-                        "level": "error",
-                        "message": f"嵌入模型异常: {e}",
-                        "fix": fix,
-                    })
+                    ol.health()
+                    try:
+                        ol.probe_embed()
+                        ok_items.append("Ollama 可用")
+                    except OllamaError as e:
+                        fix = "启动 ollama 并拉取 config 中的 embed/chat 模型"
+                        if _is_retriable_embed_error(str(e)):
+                            fix = (
+                                "重启 Ollama 并设置 OLLAMA_FLASH_ATTENTION=false，"
+                                "然后 brew services restart ollama"
+                            )
+                        issues.append({
+                            "area": "ollama",
+                            "level": "error",
+                            "message": f"嵌入模型异常: {e}",
+                            "fix": fix,
+                        })
+                finally:
+                    ol.close()
         except Exception as e:
             if not ollama_runtime.on_demand_enabled():
                 issues.append({
@@ -352,7 +427,7 @@ def diagnose(conn: sqlite3.Connection | None = None) -> dict:
         for bi in idx.get("backup_issues", []):
             issues.append({
                 "area": "backup",
-                "level": "info",
+                "level": idx.get("backup_level") or "warn",
                 "message": bi,
                 "fix": "qr backup 创建备份；qr backup --verify 校验",
             })
@@ -376,6 +451,22 @@ def diagnose(conn: sqlite3.Connection | None = None) -> dict:
                     "fix": "检查 static/index.html 与 js/qr-features.js；qr web --restart",
                 })
 
+        cursor_ws = audit_cursor_workspace(conn, cfg=cfg)
+        if cursor_ws.get("suspicious"):
+            sample = ", ".join(
+                f"{x['project']}({x['count']})" for x in cursor_ws["suspicious"][:4]
+            )
+            issues.append({
+                "area": "cursor_workspace",
+                "level": "warn",
+                "message": f"近 {cursor_ws['days']} 天 Cursor 工作区异常: {sample}",
+                "fix": "用 File → Open Folder 打开 ~/QR/<分类>/<项目>；见 docs/USE_CASES.md",
+            })
+        elif cursor_ws.get("aligned"):
+            ok_items.append(
+                f"Cursor 工作区对齐正常（{len(cursor_ws['aligned'])} 个项目）"
+            )
+
         return {
             "ok": not any(i["level"] == "error" for i in issues),
             "issues": issues,
@@ -386,6 +477,7 @@ def diagnose(conn: sqlite3.Connection | None = None) -> dict:
             "schedule": sched,
             "config_path": str(config.CONFIG_PATH),
             "index_health": idx,
+            "cursor_workspace": cursor_ws,
         }
     finally:
         if own_conn:
@@ -444,8 +536,8 @@ def status_dashboard(conn: sqlite3.Connection, *, use_cache: bool = True) -> dic
     from . import ollama_runtime
 
     ollama_on_demand = ollama_runtime.on_demand_enabled()
+    ol = Ollama()
     try:
-        ol = Ollama()
         ollama_tags = ol.health()
         if not ollama_on_demand:
             ol.probe_embed()
@@ -453,6 +545,8 @@ def status_dashboard(conn: sqlite3.Connection, *, use_cache: bool = True) -> dic
     except OllamaError:
         ollama_tags = []
         ollama_ok = ollama_on_demand
+    finally:
+        ol.close()
 
     sched = diag.get("schedule") or {}
     agents = sched.get("agents") or {}

@@ -8,6 +8,10 @@ from pathlib import Path
 from . import config
 
 CASES_PATH = config.QR_HOME / "eval_cases.json"
+EXTENDED_CASES_DOC = config.REPO_ROOT / "docs" / "EVAL_EXTENDED_CASES.md"
+
+# core 门禁：含 historical tier 名 hard / trap / negative
+CORE_TIERS = frozenset({"core", "hard", "trap", "negative"})
 
 # 评测/对比脚本不得进入向量索引，否则答案从「考题」泄漏。
 RETRIEVAL_FORBIDDEN_MARKERS = (
@@ -101,10 +105,83 @@ BUILTIN_CASES = [
     },
 ]
 
+EXTENDED_BUILTIN_CASES = [
+    {
+        "id": "oral_port",
+        "tier": "extended",
+        "category": "oral",
+        "q": "知识库网页默认几号端口来着？",
+        "must": [],
+        "nice": [],
+        "expect_paths": ["config.json", "config.py", "web.py", "/.qr/"],
+        "doc": "口语问法；期望 config / web 中 web_port 8765",
+    },
+    {
+        "id": "oral_data_dir",
+        "tier": "extended",
+        "category": "oral",
+        "q": "运行数据放哪个隐藏目录？就本机知识库那个。",
+        "must": [],
+        "nice": [],
+        "expect_paths": ["config.py", "/.qr/", "QR_HOME", "standards"],
+        "doc": "口语问法；期望 ~/.qr / QR_HOME",
+    },
+    {
+        "id": "oral_conda",
+        "tier": "extended",
+        "category": "oral",
+        "q": "这个知识库项目规定用哪个 conda 环境名？",
+        "must": [],
+        "nice": [],
+        "expect_paths": ["STANDARDS", "standards.md", "README", "AGENTS"],
+        "doc": "口语问法；期望 standards 中 conda 环境 qr",
+    },
+    {
+        "id": "narrative_schedule",
+        "tier": "extended",
+        "category": "narrative",
+        "q": "装了 schedule 之后，每周大概会自动跑哪些维护任务？",
+        "must": [],
+        "nice": [],
+        "expect_paths": ["cli.py", "schedule", "standards", "EVOLUTION"],
+        "doc": "跨文件叙事；期望 schedule / weekly / update 相关说明",
+    },
+    {
+        "id": "narrative_retrieval_plan",
+        "tier": "extended",
+        "category": "narrative",
+        "q": "检索升级计划里什么时候才考虑上 HyDE 或多查询？",
+        "must": [],
+        "nice": [],
+        "expect_paths": ["RETRIEVAL_UPGRADE", "RETRIEVAL", "query.py"],
+        "doc": "跨文件叙事；期望 RETRIEVAL_UPGRADE_PLAN 触发条件",
+    },
+    {
+        "id": "decision_milestone",
+        "tier": "extended",
+        "category": "decision",
+        "q": "里程碑结束至少要记一条什么类型的日志？",
+        "must": [],
+        "nice": [],
+        "expect_paths": ["STANDARDS", "standards.md", "USE_CASES", "decision"],
+        "doc": "决策/规范检索；期望 qr log --type decision",
+    },
+]
 
-def load_cases() -> list[dict]:
+
+def case_tier_group(case: dict) -> str:
+    """core 门禁题 vs extended 扩展题（不阻断发布）。"""
+    tier = str(case.get("tier") or "core").strip().lower()
+    return "core" if tier in CORE_TIERS else "extended"
+
+
+def load_cases(*, include_extended: bool = True) -> list[dict]:
     base = list(BUILTIN_CASES)
+    if include_extended:
+        base.extend(EXTENDED_BUILTIN_CASES)
     if not CASES_PATH.exists():
+        if not include_extended:
+            return [c for c in base if case_tier_group(c) == "core"]
         return base
     try:
         extra = json.loads(CASES_PATH.read_text(encoding="utf-8"))
@@ -117,7 +194,31 @@ def load_cases() -> list[dict]:
     for c in custom:
         if c.get("id"):
             by_id[c["id"]] = c
-    return list(by_id.values())
+    out = list(by_id.values())
+    if not include_extended:
+        out = [c for c in out if case_tier_group(c) == "core"]
+    return out
+
+
+def filter_cases_by_group(cases: list[dict], group: str) -> list[dict]:
+    g = (group or "").strip().lower()
+    return [c for c in cases if case_tier_group(c) == g]
+
+
+def extended_cases_reference() -> list[dict]:
+    """扩展题说明（期望路径与 doc 字段）。"""
+    cases = list(EXTENDED_BUILTIN_CASES)
+    if CASES_PATH.exists():
+        try:
+            extra = json.loads(CASES_PATH.read_text(encoding="utf-8"))
+            custom = extra.get("cases") if isinstance(extra, dict) else []
+            if isinstance(custom, list):
+                for c in custom:
+                    if c.get("id") and case_tier_group(c) == "extended":
+                        cases.append(c)
+        except json.JSONDecodeError:
+            pass
+    return cases
 
 
 def save_custom_case(case: dict) -> None:
@@ -183,7 +284,15 @@ def score_answer(text: str, case: dict) -> dict:
 
 
 def summarize_rag(rows: list[dict]) -> dict:
-    n = len(rows) or 1
+    n = len(rows)
+    if n == 0:
+        return {
+            "cases": 0,
+            "retrieval_ok": 0,
+            "retrieval_rate": 0.0,
+            "forbidden_hits": 0,
+            "search_avg": 0.0,
+        }
     ok = sum(1 for r in rows if r.get("retrieval_ok"))
     forbidden = sum(1 for r in rows if r.get("retrieval_forbidden"))
     return {
@@ -192,6 +301,17 @@ def summarize_rag(rows: list[dict]) -> dict:
         "retrieval_rate": round(100 * ok / n, 1),
         "forbidden_hits": forbidden,
         "search_avg": round(sum(r.get("search_s", 0) for r in rows) / n, 2),
+    }
+
+
+def summarize_rag_split(rows: list[dict]) -> dict[str, dict]:
+    """按 core / extended 分栏汇总（M4-1）。"""
+    core_rows = [r for r in rows if case_tier_group({"tier": r.get("tier", "core")}) == "core"]
+    ext_rows = [r for r in rows if case_tier_group({"tier": r.get("tier", "core")}) == "extended"]
+    return {
+        "all": summarize_rag(rows),
+        "core": summarize_rag(core_rows),
+        "extended": summarize_rag(ext_rows),
     }
 
 

@@ -1015,6 +1015,17 @@
   .pg-proposal-title{font-weight:600;font-size:13px;line-height:1.45;margin-bottom:6px}
   .pg-proposal-summary{font-size:12px;color:var(--muted);line-height:1.5;margin-bottom:8px}
   .pg-proposal-actions{display:flex;gap:6px;flex-wrap:wrap}
+  .pg-suggest-panel{
+    flex-shrink:0;max-height:min(38%,300px);display:flex;flex-direction:column;
+    min-height:0;overflow:hidden;margin:0;border-color:rgba(180,255,120,.28);
+  }
+  .pg-suggest-panel .card-head{color:var(--lime)}
+  #pgSuggestMerge{flex:1;min-height:0;overflow:auto;padding:2px 12px 10px}
+  .pg-suggest{
+    padding:10px 12px;border:1px solid var(--border);border-radius:var(--r-sm);
+    background:var(--bg2);margin-bottom:8px;
+  }
+  .pg-suggest-preview{font-size:12px;line-height:1.45;margin-bottom:8px;color:var(--text)}
   .pg-refine-modal textarea{
     width:100%;min-height:220px;padding:10px 12px;border-radius:8px;border:1px solid var(--border);
     background:var(--bg1);color:var(--text);font-family:var(--mono);font-size:12px;line-height:1.55;resize:vertical
@@ -1038,6 +1049,14 @@
   .tl-item{cursor:default}
   .tl-item:has(.tl-link){cursor:pointer}
   .tl-item:has(.tl-link) .tl-body:hover .tl-link{color:var(--mint)}
+  .tl-prefix-hint{margin-top:6px;font-size:11px;color:var(--amber);line-height:1.45}
+  .tl-sensitive-hint{margin-top:6px;font-size:11px;color:var(--rose);line-height:1.45}
+  .tl-checkpoint-bar{
+    display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:8px;padding:8px 10px;
+    border-radius:var(--r-sm);border:1px solid rgba(255,193,94,.28);background:rgba(255,193,94,.06);
+    font-size:12px;color:var(--amber);
+  }
+  .tl-checkpoint-done{font-size:11px;color:var(--mint);margin-top:6px}
   .tl-time{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;padding-top:2px}
   .tag{
     display:inline-block;padding:3px 9px;border-radius:6px;font-size:10px;font-weight:650;
@@ -1438,6 +1457,16 @@
   .stdlog-section.mod .stdlog-mod-block .stdlog-lines{padding:0}
   .stdlog-section.mod .stdlog-line--del{background:rgba(255,143,163,.06)}
   .stdlog-section.mod .stdlog-line--add{background:rgba(126,224,168,.06)}
+  .std-pending{
+    margin:0 0 12px;padding:12px 14px;border-radius:var(--radius);
+    border:1px solid rgba(255,193,94,.35);background:rgba(255,193,94,.06);
+  }
+  .std-pending-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:10px}
+  .std-pending-head h3{margin:0;font-size:14px;color:var(--amber)}
+  .std-pending-actions{display:flex;flex-wrap:wrap;gap:8px;margin-left:auto}
+  .std-pending-sections{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+  .std-pending-sec{font-size:11px;padding:2px 8px;border-radius:999px;background:rgba(255,255,255,.06);color:var(--muted)}
+  .std-pending-diff{max-height:280px;overflow:auto;border-radius:8px;border:1px solid var(--border)}
 </style>
 </head>
 <body>
@@ -1542,6 +1571,14 @@
                     <select id="askModel" class="field-select" title="问答模型"></select>
                     <select id="askCategory" class="field-select" title="限定分类" style="max-width:110px"><option value="">全部分类</option></select>
                     <select id="askProject" class="field-select" title="限定项目"></select>
+                    <label class="toggle" id="citationsToggle" title="只列检索片段出处，不调用 chat 模型生成">
+                      <span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span>
+                      <span class="toggle-label">
+                        <span class="toggle-title">仅出处</span>
+                        <span class="toggle-state" id="citationsToggleState">关</span>
+                      </span>
+                      <input type="checkbox" id="citationsOnlyChk" aria-label="仅列出处不生成">
+                    </label>
                     <label class="toggle" id="webToggle" title="开启后附加百度搜索等网络结果">
                       <span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span>
                       <span class="toggle-label">
@@ -1858,6 +1895,7 @@
           <input type="text" id="noteInput" placeholder="随手记一条笔记…">
           <div class="composer-bar">
             <button class="btn btn-ghost btn-sm" id="decisionBtn">决策模板</button>
+            <button class="btn btn-ghost btn-sm" id="activityBtn" title="非 Cursor 投入（写作、设计等）">活动</button>
             <span class="spacer"></span>
             <button class="btn btn-primary btn-sm" id="noteBtn">记录</button>
           </div>
@@ -1927,6 +1965,7 @@
         </div>
         </div>
         <div class="page-body">
+        <div id="stdPending" class="std-pending" hidden></div>
         <div class="card std-wrap">
           <div class="std-body" id="stdOut"></div>
           <textarea class="std-edit" id="stdEdit" hidden spellcheck="false"></textarea>
@@ -1992,6 +2031,11 @@
               <div class="card-head">待确认提炼 <span class="hint" id="pgProposalCount"></span></div>
               <div id="pgProposals"></div>
             </div>
+            <div class="card pg-suggest-panel" id="pgSuggestPanel" style="display:none">
+              <div class="card-head">建议合并 <span class="hint" id="pgSuggestCount"></span></div>
+              <div class="hint" style="padding:0 12px 8px;font-size:11px">相似问话片段，一键合并为引导语</div>
+              <div id="pgSuggestMerge" class="pg-suggest-list"></div>
+            </div>
             <div class="card pg-guides-panel">
               <div class="pg-guides-head">
                 <div class="card-head" style="margin:0;padding:0;border:none;background:transparent">已保存引导语</div>
@@ -2021,7 +2065,15 @@
               <div class="insight-stat-mini"><span>活跃项目</span><strong id="insightKpiProject">—</strong></div>
               <div class="insight-stat-mini"><span>引导语收件箱</span><strong id="insightKpiInbox">—</strong></div>
               <div class="insight-stat-mini"><span>主动提醒</span><strong id="insightKpiAlerts">—</strong></div>
+              <div class="insight-stat-mini"><span>无前缀对话</span><strong id="insightKpiPrefix" title="近7天注册项目内、侧栏未加 执行- 前缀的 Cursor 会话">—</strong></div>
+              <div class="insight-stat-mini"><span>shell 时间戳</span><strong id="insightKpiShellTs" title="zsh 历史中带 epoch 的行占比">—</strong></div>
               <div class="insight-stat-mini"><span>接着干</span><strong id="insightKpiActions">—</strong></div>
+            </div>
+            <div class="insight-side-focus" style="padding:10px 14px;border-top:1px solid var(--border)">
+              <label class="hint" for="focusProjectSelect">本周主攻</label>
+              <select id="focusProjectSelect" class="field-select" style="width:100%;margin-top:6px" title="设置后「接着干」优先收束到该项目">
+                <option value="">（自动检测活跃项目）</option>
+              </select>
             </div>
             <div class="insight-side-ops">
               <button class="btn btn-primary btn-sm" id="todayRefreshBtn">刷新总览</button>
@@ -2033,6 +2085,16 @@
               <div class="insight-card insight-card--plan insight-card--plan-compact">
                 <div class="insight-card-head">每日计划 <span class="hint" id="dailyPlanMeta"></span></div>
                 <div id="dailyPlanList" class="daily-plan-list daily-plan-list--compact">加载中…</div>
+              </div>
+              <div class="insight-card">
+                <div class="insight-card-head">设计者验收 <span class="hint">改完功能后三步收束</span></div>
+                <div class="insight-toolbar insight-toolbar--sub" style="margin:0 0 8px">
+                  <button type="button" class="btn btn-primary btn-sm" id="shipDoctorBtn">① 检查系统是否正常</button>
+                  <a class="btn btn-ghost btn-sm" id="shipWebLink" href="/" target="_blank" rel="noopener">② 试用刚改的功能</a>
+                  <button type="button" class="btn btn-ghost btn-sm" id="shipDecisionBtn">③ 记下为什么这样选</button>
+                </div>
+                <pre class="insight-card-body" id="shipDoctorDetail" style="min-height:48px;font-size:12px">点击 ① 运行系统检查（等同 qr doctor 摘要）</pre>
+                <pre class="insight-card-body" id="designerMetricsOut" style="min-height:32px;font-size:11px;color:var(--muted)"></pre>
               </div>
               <div class="insight-bench-main">
                 <div class="insight-card">
@@ -2072,6 +2134,7 @@
             <section class="insight-panel" data-insight-panel="quality" role="tabpanel">
               <div class="insight-toolbar">
                 <button class="btn btn-primary btn-sm" id="complianceBtn">合规扫描</button>
+                <button class="btn btn-ghost btn-sm" id="complianceShipBtn">验收清单</button>
                 <button class="btn btn-primary btn-sm" id="evalRunBtn">运行评测</button>
               </div>
               <div class="insight-toolbar insight-toolbar--sub">
@@ -2103,10 +2166,17 @@
         <div class="page-ops">
         <div class="toolbar-stack">
           <div class="toolbar-row">
+            <span class="toolbar-label">Cursor</span>
+            <div class="btn-group">
+              <button class="btn btn-ghost btn-sm" id="opsCursorAlignBtn">工作区对齐</button>
+            </div>
+          </div>
+          <div class="toolbar-row">
             <span class="toolbar-label">维护</span>
             <div class="btn-group">
               <button class="btn btn-primary btn-sm" id="opsRefreshBtn">刷新状态</button>
               <button class="btn btn-sm" id="opsBackupBtn">备份数据库</button>
+              <button class="btn btn-ghost btn-sm" id="opsBackupVerifyBtn">校验最近备份</button>
               <button class="btn btn-ghost btn-sm" id="opsIndexHealthBtn">索引健康</button>
               <button class="btn btn-sm" id="opsOptimizeBtn">一键优化</button>
               <button class="btn btn-sm" id="opsScheduleBtn">安装定时任务</button>
@@ -2115,6 +2185,8 @@
           <div class="toolbar-row">
             <span class="toolbar-label">采集</span>
             <div class="btn-group">
+              <button class="btn btn-ghost btn-sm" id="opsTrackerPauseBtn">暂停采样 2h</button>
+              <button class="btn btn-ghost btn-sm" id="opsTrackerResumeBtn">恢复采样</button>
               <button class="btn btn-ghost btn-sm" id="opsGitSyncBtn">对齐 Git 扫描目录</button>
               <button class="btn btn-ghost btn-sm" id="opsRepairTimesBtn">修复引导语时间</button>
               <button class="btn btn-ghost btn-sm" id="opsImportDiscoverBtn">扫描散落项目</button>
@@ -2129,11 +2201,18 @@
           <div class="card">
             <div class="card-head">自检 · 权限</div>
             <pre class="panel-pre" id="opsDoctorOut">加载中…</pre>
+            <pre class="panel-pre" id="opsCursorAlignOut" style="display:none;margin-top:8px;font-size:12px"></pre>
           </div>
           <div class="card">
             <div class="card-head">定时任务 · 备份 · 配置</div>
+            <div id="opsTrackerStatus" class="hint" style="margin-bottom:8px"></div>
             <div id="opsScheduleAgents" class="ops-schedule-list"></div>
             <pre class="panel-pre panel-pre--tall" id="opsScheduleOut"></pre>
+          </div>
+          <div class="card" style="grid-column:1/-1">
+            <div class="card-head">模块地图 · 改哪里</div>
+            <div class="hint" style="margin-bottom:10px">问行为找 collectors、问检索找 query、问运维找 ops_panel。链到 <a href="#" class="tl-link" id="opsModuleShortfallLink">短板修复</a> 与检索升级计划。</div>
+            <div id="opsModuleMap" class="ops-list"><div class="hint">加载中…</div></div>
           </div>
           <div class="card" style="grid-column:1/-1">
             <div class="card-head">散落项目（就地索引，不移动文件）</div>
@@ -2834,6 +2913,7 @@ async function loadPrompts(){
     await ensurePromptsApi();
     await loadPromptTypes();
     await loadPgProposals();
+    await loadPgSuggestMerge();
     const q=pgQueryFilters();
     const st=await api('/api/prompts/stats');
     let grouped={groups:[]}, gu={guides:[]};
@@ -2866,6 +2946,48 @@ async function loadPrompts(){
 }
 
 let pgRefineModalId=null;
+
+async function loadPgSuggestMerge(){
+  const panel=$('#pgSuggestPanel');
+  const el=$('#pgSuggestMerge');
+  if(!panel||!el) return;
+  try{
+    const r=await api('/api/prompts/suggest-merge?limit=120');
+    const clusters=r.clusters||[];
+    $('#pgSuggestCount').textContent=clusters.length?`(${clusters.length})`:'';
+    panel.style.display=clusters.length?'flex':'none';
+    if(!clusters.length){
+      el.innerHTML='';
+      return;
+    }
+    el.innerHTML=clusters.map((c,i)=>`
+      <div class="pg-suggest" data-idx="${i}">
+        <div class="hint" style="margin-bottom:4px">${esc(c.project||'—')} · ${c.count||0} 条</div>
+        <div class="pg-suggest-preview">${esc(c.preview||'')}</div>
+        <button type="button" class="btn btn-ghost btn-sm pg-suggest-merge" data-ids="${(c.fragment_ids||[]).join(',')}">合并本组</button>
+      </div>`).join('');
+    el.querySelectorAll('.pg-suggest-merge').forEach(btn=>{
+      btn.onclick=async e=>{
+        e.stopPropagation();
+        const ids=(btn.dataset.ids||'').split(',').map(x=>+x).filter(Boolean);
+        if(ids.length<2){alert('该组片段不足');return}
+        const title=prompt('合并后标题（可空）：')||null;
+        try{
+          await api('/api/prompts/merge',{
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({fragment_ids:ids,title}),
+          });
+          pgState.selected.clear();
+          loadPrompts();
+        }catch(err){alert(err.message)}
+      };
+    });
+  }catch(e){
+    panel.style.display='none';
+    el.innerHTML='';
+  }
+}
 
 async function loadPgProposals(){
   const panel=$('#pgProposalsPanel');
@@ -3211,14 +3333,31 @@ function syncWebToggle(){
   const st=$('#webToggleState');
   if(st) st.textContent=on?'开':'关';
 }
+function syncCitationsToggle(){
+  const on=$('#citationsOnlyChk')?.checked;
+  $('#citationsToggle')?.classList.toggle('on',!!on);
+  const st=$('#citationsToggleState');
+  if(st) st.textContent=on?'开':'关';
+  const web=$('#webChk');
+  if(on&&web?.checked){
+    web.checked=false;
+    syncWebToggle();
+  }
+  if(web) web.disabled=!!on;
+  $('#webToggle')?.classList.toggle('is-disabled',!!on);
+  const askBtn=$('#askBtn');
+  if(askBtn) askBtn.textContent=on?'检索出处 ↵':'提问 ↵';
+}
 function syncSymbolPill(){
   const on=$('#qSymbolChk')?.checked;
   $('#qSymbolPill')?.classList.toggle('on',!!on);
 }
 $('#askModel').onchange=scheduleContextMeter;
 $('#webChk').onchange=()=>{syncWebToggle();scheduleContextMeter()};
+$('#citationsOnlyChk')?.addEventListener('change',()=>{syncCitationsToggle();scheduleContextMeter()});
 $('#qSymbolChk')?.addEventListener('change',syncSymbolPill);
 syncWebToggle();
+syncCitationsToggle();
 syncSymbolPill();
 
 // Stats — 四象限 1×4（采集 / 索引 / 对话 / 运维）
@@ -3866,6 +4005,7 @@ async function submitAsk(){
   const b=$('#askBtn');b.disabled=true;
   qrRunStart({id:'ask',label:'本地问答',group:'ask'});
   const model=selectedAskModel(),web=$('#webChk').checked;
+  const citationsOnly=$('#citationsOnlyChk')?.checked;
   const project=$('#askProject').value||null;
   const category=$('#askCategory').value||null;
   const userMsg={role:'user',content:q,time:''};
@@ -3876,7 +4016,7 @@ async function submitAsk(){
   showAskWorkspace(askState.sessionId?'当前对话':'新对话');
   renderAskThread();
   try{
-    const body={question:q,k:6,model,web,stream:true,project,category};
+    const body={question:q,k:6,model,web:citationsOnly?false:web,stream:true,project,category,citations_only:!!citationsOnly};
     if(askState.sessionId) body.session_id=askState.sessionId;
     const resp=await fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).catch(e=>{
       const msg=String(e&&e.message?e.message:e);
@@ -4239,8 +4379,20 @@ function evRow(e,opts={}){
     rel=`<button type="button" class="btn btn-ghost btn-sm tl-related-btn" data-uid="${esc(e.uid)}">关联</button>`;
   }
   const projTag=(e.project_label||e.project)?`<span class="tag proj" title="${esc(e.project||'')}">${esc(e.project_label||e.project)}</span>`:'';
+  const prefixHint=e.prompt_prefix_pending
+    ?`<div class="tl-prefix-hint" title="${esc(e.chat_title||'')}">${esc(e.prompt_prefix_hint||'改为 执行- 主题 可进引导语')}</div>`
+    :'';
+  const sensitiveHint=e.sensitive_warning
+    ?`<div class="tl-sensitive-hint" title="${esc((e.sensitive_patterns||[]).join(' · '))}">${esc(e.sensitive_hint||'含疑似密钥，请检查归档')}</div>`
+    :'';
+  let cpHtml='';
+  if(e.show_checkpoint_btn&&e.session_id){
+    cpHtml=`<div class="tl-checkpoint-bar"><span>长会话 · ${e.session_turns||'?'} 轮</span><button type="button" class="btn btn-ghost btn-sm tl-cp-btn" data-sid="${esc(e.session_id)}">生成 checkpoint</button></div>`;
+  }else if(e.checkpoint_uid){
+    cpHtml=`<div class="tl-checkpoint-done">已有 checkpoint</div>`;
+  }
   const newCls=opts.isNew?' tl-item--new':'';
-  return `<div class="tl-item${newCls}" data-uid="${esc(tlItemKey(e))}"><div class="tl-time">${e.time}${est}</div><div class="tl-tags"><span class="tag ${e.source}">${e.source}</span>${projTag}</div><div class="tl-body">${body}${rel}</div></div>`;
+  return `<div class="tl-item${newCls}" data-uid="${esc(tlItemKey(e))}"><div class="tl-time">${e.time}${est}</div><div class="tl-tags"><span class="tag ${e.source}">${e.source}</span>${projTag}</div><div class="tl-body">${body}${prefixHint}${sensitiveHint}${cpHtml}${rel}</div></div>`;
 }
 
 function tlEmptyHtml(){
@@ -4422,6 +4574,24 @@ $('#tlShowRelated')?.addEventListener('change',()=>{
   loadTimeline(1);
 });
 $('#tlOut')?.addEventListener('click',async ev=>{
+  const cpBtn=ev.target.closest('.tl-cp-btn');
+  if(cpBtn){
+    ev.preventDefault();
+    const sid=cpBtn.dataset.sid;
+    if(!sid||cpBtn.disabled) return;
+    if(!confirm(`为会话 ${sid.slice(0,8)}… 生成 checkpoint？`)) return;
+    cpBtn.disabled=true;
+    cpBtn.textContent='生成中…';
+    try{
+      await api('/api/cursor/sessions/'+encodeURIComponent(sid)+'/checkpoint',{method:'POST'});
+      await tlReloadLatest({silent:true});
+    }catch(err){
+      alert(err.message||'生成失败');
+      cpBtn.disabled=false;
+      cpBtn.textContent='生成 checkpoint';
+    }
+    return;
+  }
   const btn=ev.target.closest('.tl-related-btn');
   if(btn){
     ev.preventDefault();
@@ -4518,9 +4688,12 @@ $('#cursorIdxBtn').onclick=async()=>{
   }catch(e){alert(e.message)}
 };
 $('#decisionBtn').onclick=()=>{$('#noteInput').value='# 决策记录\n\n## 问题\n\n\n## 选项\n\n- \n\n## 结论\n\n\n## 原因\n\n';$('#noteInput').focus()};
+$('#activityBtn').onclick=()=>{$('#noteInput').value='[活动] 今天在 项目名称 投入约 2h：';$('#noteInput').focus()};
 $('#noteBtn').onclick=async()=>{
   const v=$('#noteInput').value.trim();if(!v)return;
-  const kind=v.startsWith('# 决策')?'decision':'note';
+  let kind='note';
+  if(v.startsWith('# 决策')||v.startsWith('#决策')) kind='decision';
+  else if(v.startsWith('[活动]')) kind='activity';
   try{
     const r=await api('/api/log',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:v,kind})});
     if(r.skipped){
@@ -4637,10 +4810,87 @@ async function loadStandards(){
   try{
     const r=await api('/api/standards');
     applyStandardsPayload(r);
+    await loadStdPending();
     if($('#view-stdlog')?.classList.contains('active')) loadStdChangelog();
   }catch(e){
     $('#stdHint').textContent='加载失败：'+e.message;
     if(stdEditing) exitStdEdit(true);
+  }
+}
+
+function renderStdPendingDiff(diff){
+  if(!diff) return '<div class="hint">无 diff</div>';
+  const fake={added:diff.added||[],deleted:diff.deleted||[],modified:diff.modified||[],note:'',timestamp:'',version_index:0,version_id:0};
+  return renderStdChangelogEntry(fake).replace(/<header[\s\S]*?<\/header>/,'');
+}
+
+function showStdPending(p){
+  const el=$('#stdPending');
+  if(!el) return;
+  if(!p||!p.pending){
+    el.hidden=true;
+    el.innerHTML='';
+    return;
+  }
+  const secs=(p.diff?.sections||[]).map(s=>`<span class="std-pending-sec">§${esc(s.section)} ${esc(s.title||'')}</span>`).join('');
+  el.innerHTML=`<div class="std-pending-head">
+    <h3>待确认修订</h3>
+    <span class="hint">${esc(p.note||p.pending_note||'')}</span>
+    <div class="std-pending-actions">
+      <button type="button" class="btn btn-primary btn-sm" id="stdPendingConfirmBtn">确认应用</button>
+      <button type="button" class="btn btn-ghost btn-sm" id="stdPendingRejectBtn">丢弃</button>
+      <button type="button" class="btn btn-ghost btn-sm" id="stdPendingPreviewBtn">查看草案全文</button>
+    </div>
+  </div>
+  ${secs?`<div class="std-pending-sections">${secs}</div>`:''}
+  <div class="std-pending-diff">${renderStdPendingDiff(p.diff)}</div>`;
+  el.hidden=false;
+  $('#stdPendingConfirmBtn').onclick=confirmStdPending;
+  $('#stdPendingRejectBtn').onclick=rejectStdPending;
+  $('#stdPendingPreviewBtn').onclick=()=>{
+    if(p.preview){
+      $('#stdOut').textContent=p.preview;
+      $('#stdHint').textContent='预览修订草案（未生效）';
+    }
+  };
+}
+
+async function loadStdPending(){
+  try{
+    const p=await api('/api/standards/pending');
+    showStdPending(p);
+    return p;
+  }catch(e){
+    showStdPending(null);
+    return null;
+  }
+}
+
+async function confirmStdPending(){
+  if(!confirm('确认将待确认修订应用到当前生效规范？')) return;
+  qrRunStart({id:'standards-confirm',label:'确认规范修订',group:'standards',hintEl:'#stdHint'});
+  try{
+    const r=await api('/api/standards/confirm',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({note:'Web 确认'})});
+    applyStandardsPayload(r);
+    showStdPending(null);
+    $('#stdHint').dataset.idle='已确认并应用修订';
+    $('#stdHint').textContent='已确认并应用修订';
+    if($('#view-stdlog')?.classList.contains('active')) loadStdChangelog();
+  }catch(e){
+    $('#stdHint').textContent='确认失败：'+e.message;
+  }
+  qrRunEnd('standards-confirm',{message:$('#stdHint').textContent,error:($('#stdHint').textContent||'').startsWith('确认失败')});
+}
+
+async function rejectStdPending(){
+  if(!confirm('丢弃待确认修订草案？')) return;
+  try{
+    await api('/api/standards/reject',{method:'POST'});
+    showStdPending(null);
+    $('#stdHint').textContent='已丢弃待确认修订';
+    $('#stdHint').dataset.idle=$('#stdHint').textContent;
+  }catch(e){
+    alert(e.message);
   }
 }
 
@@ -4781,6 +5031,9 @@ $('#stdActivateBtn').onclick=async()=>{
 };
 
 function stdReviseResultMessage(r,{fromSummary=false,fromConversations=false}={}){
+  if(r.pending){
+    return '修订草案已生成，待确认后才会覆盖当前规范';
+  }
   if(r.content_changed===false){
     return '生成完成：与当前规范无实质差异，正文未变，未新建版本';
   }
@@ -4832,7 +5085,9 @@ async function stdReviseWithPeriod(period, {fromSummary=false,fromConversations=
         from_conversations:!!fromConversations,
       }),
     });
-    applyStandardsPayload(r);
+    applyStandardsPayload(r,{updateContent:!r.pending});
+    if(r.pending) showStdPending({pending:true,diff:r.diff,note:r.pending_note,preview:r.preview});
+    else showStdPending(null);
     msg=stdReviseResultMessage(r,{fromSummary,fromConversations});
     if(r.content_changed!==false){
       const out=$('#stdOut');
@@ -5164,6 +5419,30 @@ $('#complianceBtn').onclick=async()=>{
     $('#insightComplianceOut').textContent=msg;
   }
   qrRunEnd('insight-compliance',{message:msg,error:err});
+};
+$('#complianceShipBtn').onclick=async()=>{
+  if(qrRunHas('insight-ship')) return;
+  qrRunStart({id:'insight-ship',label:'验收清单',group:'insight'});
+  let err=false,msg='';
+  try{
+    const r=await api('/api/compliance?ship=1');
+    const days=r.days||14;
+    const lines=[`近 ${days} 天活跃项目 · 本机 doctor：${r.doctor_recent?'有':'无'}`,''];
+    (r.projects||[]).filter(p=>p.active).forEach(p=>{
+      const mark=p.ok?'✓':'✗';
+      lines.push(`${mark} ${p.project} · 决策 ${p.decisions} · 验收 ${p.ship_check||r.doctor_recent?'✓':'✗'}`);
+      (p.warnings||[]).forEach(w=>lines.push(`  ! ${w}`));
+    });
+    if(!lines[2]) lines.push('（无活跃项目）');
+    $('#insightComplianceOut').textContent=lines.join('\n');
+    const bad=(r.missing_decisions||[]).length+(r.missing_ship||[]).length;
+    msg=bad?`验收清单：${bad} 项待处理`:'验收清单：活跃项目均达标';
+  }catch(e){
+    err=true;
+    msg='出错：'+e.message;
+    $('#insightComplianceOut').textContent=msg;
+  }
+  qrRunEnd('insight-ship',{message:msg,error:err});
 };
 function drawGraph(data){
   const svg=$('#graphSvg');
@@ -5623,6 +5902,52 @@ function renderOpsDoctor(d){
   const priv=(d?.permissions||[]).map(p=>`${p.ok?'✓':'✗'} ${p.label} · ${p.detail}`).join('\n');
   $('#opsDoctorOut').textContent=[ok&&('[正常]\n'+ok),issues&&('\n[待完善]\n'+issues),priv&&('\n[权限探测]\n'+priv)].filter(Boolean).join('\n\n')||'暂无数据';
 }
+function renderOpsTracker(tr){
+  const box=$('#opsTrackerStatus');
+  if(!box) return;
+  if(!tr){box.textContent='';return;}
+  if(tr.paused){
+    box.innerHTML=`<span class="ops-tag warn">已暂停</span> 至 ${esc(tr.until_human||'—')}（约 ${Math.ceil((tr.remaining_s||0)/60)} 分钟）`;
+  }else{
+    box.innerHTML='<span class="ops-tag ok">采样中</span> 可用「暂停采样 2h」临时停止写入 app_usage';
+  }
+}
+function renderOpsModuleMap(data){
+  const box=$('#opsModuleMap');
+  if(!box||!data) return;
+  const areas=data.areas||[];
+  if(!areas.length){box.innerHTML='<div class="hint">暂无</div>';return;}
+  box.innerHTML=areas.map(a=>{
+    const lines=(a.lines||[]).map(l=>`<div class="ops-path">${esc(l)}</div>`).join('');
+    const files=(a.files||[]).map(f=>`<a href="#" class="tl-link" data-path="${esc(f.path)}">${esc(f.label)}</a>`).join(' · ');
+    const docs=(a.docs||[]).map(d=>`<a href="#" class="tl-link" data-path="${esc(d.path)}">${esc(d.label)}</a>`).join(' · ');
+    return `<li style="padding:10px 0"><strong>${esc(a.title)}</strong>${lines}<div style="margin-top:6px">主文件：${files||'—'}</div>${docs?`<div style="margin-top:4px">文档：${docs}</div>`:''}</li>`;
+  }).join('');
+  const sf=$('#opsModuleShortfallLink');
+  if(sf&&data.shortfall_doc) sf.dataset.path=data.shortfall_doc;
+}
+async function loadModuleMap(){
+  try{
+    const data=await api('/api/module-map');
+    renderOpsModuleMap(data);
+  }catch(e){
+    const box=$('#opsModuleMap');
+    if(box) box.innerHTML='<div class="hint">模块地图加载失败：'+esc(e.message)+'</div>';
+  }
+}
+async function opsTrackerPause(resume){
+  if(qrRunHas('ops-tracker-pause')) return;
+  qrRunStart({id:'ops-tracker-pause',label:resume?'恢复采样':'暂停采样',group:'ops',hintEl:'#opsHint'});
+  let msg='',err=false;
+  try{
+    const r=await api('/api/tracker/pause',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(resume?{resume:true}:{duration:'2h'})});
+    msg=r.message||'已更新';
+    await loadOps();
+  }catch(e){err=true;msg='失败：'+e.message}
+  qrRunEnd('ops-tracker-pause',{message:msg,error:err});
+}
+$('#opsTrackerPauseBtn')?.addEventListener('click',()=>opsTrackerPause(false));
+$('#opsTrackerResumeBtn')?.addEventListener('click',()=>opsTrackerPause(true));
 function renderOpsSchedule(d){
   const sched=d?.schedule||{};
   const agents=sched.agents||[];
@@ -5702,6 +6027,8 @@ async function loadOps(){
     opsState.data=d;
     renderOpsDoctor(d);
     renderOpsSchedule(d);
+    renderOpsTracker(d.tracker);
+    loadModuleMap();
     if(hint) hint.textContent='';
   }catch(e){
     if(hint) hint.textContent='';
@@ -5710,6 +6037,17 @@ async function loadOps(){
   }
 }
 $('#opsRefreshBtn')?.addEventListener('click',()=>loadOps());
+$('#opsCursorAlignBtn')?.addEventListener('click',async()=>{
+  const el=$('#opsCursorAlignOut');
+  if(!el) return;
+  el.style.display='block';
+  el.textContent='加载中…';
+  try{
+    const r=await api('/api/workspace/cursor-alignment');
+    const lines=(r.projects||[]).map(p=>'· '+p.project+' → '+p.cursor_open_path);
+    el.textContent='Cursor 应对齐打开：\n'+(lines.join('\n')||'（无注册项目）');
+  }catch(e){el.textContent='加载失败：'+e.message}
+});
 $('#opsBackupBtn')?.addEventListener('click',async()=>{
   if(qrRunHas('ops-backup')) return;
   qrRunStart({id:'ops-backup',label:'数据库备份',group:'ops',hintEl:'#opsHint'});
@@ -5721,6 +6059,17 @@ $('#opsBackupBtn')?.addEventListener('click',async()=>{
     loadStats();
   }catch(e){err=true;msg='备份失败：'+e.message}
   qrRunEnd('ops-backup',{message:msg,error:err});
+});
+$('#opsBackupVerifyBtn')?.addEventListener('click',async()=>{
+  if(qrRunHas('ops-backup-verify')) return;
+  qrRunStart({id:'ops-backup-verify',label:'校验备份',group:'ops',hintEl:'#opsHint'});
+  let msg='',err=false;
+  try{
+    const r=await api('/api/ops/backup/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+    msg=r.ok?`备份有效 · events ${r.events} · ${r.size_mb} MB`:(r.error||'备份无效');
+    if(!r.ok) err=true;
+  }catch(e){err=true;msg='校验失败：'+e.message}
+  qrRunEnd('ops-backup-verify',{message:msg,error:err});
 });
 $('#opsIndexHealthBtn')?.addEventListener('click',async()=>{
   const cleanup=confirm('是否同时清理源文件已消失的孤儿索引？\n确定=清理，取消=仅检查');
@@ -5854,7 +6203,8 @@ async function loadProjectPanel(){
     const cur=(r.cursor_topics||[]).map(t=>'· '+t).join('\n')||'（无 Cursor 主题）';
     const comp=r.compliance?`${r.compliance.ok?'✓':'✗'} ${r.compliance.path}\n  ${(r.compliance.issues||[]).join('; ')||'合规'}`:'未扫描';
     const compBlock=focus?formatCompletionGates(focus)+'\n\n':'';
-    $('#projectOut').textContent=`项目: ${r.project}\n笔记 ${r.notes_count} · 对话 ${r.chat_sessions}\n\n${compBlock}[Git]\n${git}\n\n[Cursor]\n${cur}\n\n[合规]\n${comp}`;
+    const cursorPath=r.cursor_open_path?`\n[Cursor 打开]\n${r.cursor_open_path}${r.cursor_slug?`\n  slug: ${r.cursor_slug}`:''}\n`:'';
+    $('#projectOut').textContent=`项目: ${r.project}\n笔记 ${r.notes_count} · 活动 ${r.activity_notes??0} · 对话 ${r.chat_sessions}${cursorPath}\n\n${compBlock}[Git]\n${git}\n\n[Cursor 主题]\n${cur}\n\n[合规]\n${comp}`;
     if(focus){
       projectFocusState.brief=focus;
       rebuildBadgeItems();

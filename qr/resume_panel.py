@@ -100,31 +100,63 @@ def _workspace_open_tasks(conn: sqlite3.Connection | None = None) -> list[dict]:
     return items[:4]
 
 
+def _configured_focus_project() -> tuple[str, str]:
+    """返回 (canonical_project_id, source_tag)。"""
+    cfg = config.load_config()
+    raw = (cfg.get("focus_project") or "").strip()
+    if not raw:
+        return "", ""
+    pid = workspace.canonical_project_id(raw, cfg) or workspace.normalize_project_id(raw)
+    if pid and workspace.is_listable_project_id(pid):
+        return pid, "focus_config"
+    return "", ""
+
+
 def generate(conn: sqlite3.Connection | None = None) -> dict[str, Any]:
     own = conn is None
     if own:
         db.init_db()
         conn = db.connect()
     try:
+        focus_pid, focus_from = _configured_focus_project()
         pid, detected_from = project_brief.detect_active_project(hours=72)
         if not pid:
             pid, detected_from = project_brief.detect_active_project(hours=24 * 14)
 
-        brief = project_brief.brief(pid or "", prefer_detected=not bool(pid))
+        if focus_pid:
+            active_pid = focus_pid
+            detected_from = focus_from
+            brief = project_brief.brief(focus_pid, prefer_detected=False)
+        else:
+            brief = project_brief.brief(pid or "", prefer_detected=not bool(pid))
+            active_pid = brief.get("project") or pid or ""
         if brief.get("error"):
-            brief = {"project": "", "lines": []}
+            brief = {"project": active_pid, "lines": []}
 
         pg = prompt_guides.stats(conn)
-        cursor_topics = _cursor_topics(conn, brief.get("project") or pid)
-        git_rows = _recent_git(conn, brief.get("project") or pid)
+        cursor_topics = _cursor_topics(conn, active_pid or None)
+        git_rows = _recent_git(conn, active_pid or None)
+        cursor_other = _cursor_topics(conn, None, limit=4) if focus_pid else []
+        git_other = _recent_git(conn, None, limit=3) if focus_pid else []
+        if focus_pid:
+            cursor_other = [r for r in cursor_other if (r.get("project") or "") != focus_pid][:3]
+            git_other = [r for r in git_other if (r.get("project") or "") != focus_pid][:2]
         inbox = _inbox_preview(conn)
         open_tasks = _workspace_open_tasks(conn)
+        if focus_pid:
+            focus_tasks = next(
+                (x for x in open_tasks if x.get("project") == focus_pid),
+                None,
+            )
+            other_tasks = [x for x in open_tasks if x.get("project") != focus_pid]
+            open_tasks = ([focus_tasks] if focus_tasks else []) + other_tasks
 
-        active_pid = brief.get("project") or pid or ""
         feature_open = _open_tasks(brief.get("feature_tasks") or [])
         opt_open = _open_tasks(brief.get("opt_tasks") or [])
 
         actions: list[str] = []
+        if focus_pid:
+            actions.append(f"本周主攻：{focus_pid}")
         if pg.get("inbox", 0) > 0:
             actions.append(f"引导语收件箱 {pg['inbox']} 条待合并 → 打开「引导语」页")
         if feature_open:
@@ -136,10 +168,14 @@ def generate(conn: sqlite3.Connection | None = None) -> dict[str, Any]:
 
         return {
             "active_project": active_pid,
-            "detected_from": detected_from if pid else brief.get("detected_from", "none"),
+            "focus_project": focus_pid or None,
+            "focus_from_config": bool(focus_pid),
+            "detected_from": detected_from if active_pid else brief.get("detected_from", "none"),
             "brief": brief,
             "cursor_topics": cursor_topics,
+            "cursor_topics_other": cursor_other,
             "recent_git": git_rows,
+            "recent_git_other": git_other,
             "inbox_count": int(pg.get("inbox", 0)),
             "inbox_preview": inbox,
             "open_tasks": {

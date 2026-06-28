@@ -18,6 +18,11 @@ def _prompts_dir() -> Path:
 def _note_title(text: str, *, kind: str) -> str:
     if kind == "decision":
         return f"[决策] {text.splitlines()[0][:100]}"
+    if kind == "activity":
+        line = text.splitlines()[0][:100] if text else "(空活动记录)"
+        if not line.startswith("[活动]"):
+            return f"[活动] {line}"
+        return line
     return text.splitlines()[0][:120] if text else "(空笔记)"
 
 
@@ -54,7 +59,7 @@ def purge_cursor_duplicate_notes(conn: sqlite3.Connection) -> int:
                 kind = str(json.loads(meta_raw).get("kind") or "")
             except json.JSONDecodeError:
                 kind = ""
-        if kind in ("file", "decision"):
+        if kind in ("file", "decision", "activity", "checkpoint"):
             continue
         if uid.startswith("note:file:"):
             continue
@@ -91,20 +96,39 @@ def add_note(
     *,
     kind: str = "note",
     allow_cursor_echo: bool = False,
+    project: str | None = None,
 ) -> bool | str:
     if not allow_cursor_echo and kind == "note" and is_cursor_echo(conn, text):
         return "cursor_echo"
+    from .. import workspace
+
     ts = db.now()
     h = hashlib.sha1(f"{ts}{text}{kind}".encode("utf-8", "replace")).hexdigest()[:12]
     if kind == "decision":
         title = _note_title(text, kind="decision")
         meta = json.dumps({"tags": tags or "decision", "kind": "decision"}, ensure_ascii=False)
+    elif kind == "activity":
+        line = (text or "").strip()
+        if line and not line.startswith("[活动]"):
+            text = f"[活动] {line}"
+        title = _note_title(text, kind="activity")
+        meta = json.dumps(
+            {"tags": tags or "activity", "kind": "activity"},
+            ensure_ascii=False,
+        )
     else:
         title = _note_title(text, kind=kind)
         meta = json.dumps({"tags": tags, "kind": kind}, ensure_ascii=False)
+    pid = workspace.canonical_project_id(project) if project else None
     return db.upsert_event(
-        conn, uid=f"note:{kind}:{h}", ts=ts, source="note",
-        title=title, content=text, meta=meta,
+        conn,
+        uid=f"note:{kind}:{h}",
+        ts=ts,
+        source="note",
+        project=pid,
+        title=title,
+        content=text,
+        meta=meta,
     )
 
 
@@ -134,16 +158,18 @@ def purge_misclassified_note_events(conn: sqlite3.Connection) -> int:
 
 
 def is_manual_timeline_note(uid: str | None, meta: str | None) -> bool:
-    """时间线 note 仅展示 qr log / Web 手动记录（kind=note|decision）。"""
+    """时间线 note 仅展示 qr log / Web 手动记录（kind=note|decision|activity|checkpoint）。"""
     u = (uid or "").strip()
-    if u.startswith("note:note:") or u.startswith("note:decision:"):
+    if u.startswith("note:note:") or u.startswith("note:decision:") or u.startswith("note:activity:"):
+        return True
+    if u.startswith("note:checkpoint:"):
         return True
     if u.startswith("note:file:"):
         return False
     if meta:
         try:
             kind = str(json.loads(meta).get("kind") or "")
-            if kind in ("note", "decision"):
+            if kind in ("note", "decision", "activity", "checkpoint"):
                 return True
             if kind == "file":
                 return False
@@ -153,10 +179,11 @@ def is_manual_timeline_note(uid: str | None, meta: str | None) -> bool:
 
 
 def manual_note_timeline_sql() -> str:
-    """SQL：保留非 note 来源，或手动 note/decision。"""
+    """SQL：保留非 note 来源，或手动 note/decision/activity/checkpoint。"""
     return (
         "(source != 'note' OR uid GLOB 'note:note:*' OR uid GLOB 'note:decision:*' "
-        "OR json_extract(meta, '$.kind') IN ('note', 'decision'))"
+        "OR uid GLOB 'note:activity:*' OR uid GLOB 'note:checkpoint:*' "
+        "OR json_extract(meta, '$.kind') IN ('note', 'decision', 'activity', 'checkpoint'))"
     )
 
 

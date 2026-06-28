@@ -34,6 +34,7 @@ from . import (
     indexer,
     models,
     links,
+    module_map,
     ops_timeline,
     ops_panel,
     project_brief,
@@ -174,6 +175,7 @@ class AskBody(BaseModel):
     project: str | None = None
     category: str | None = None
     stream: bool = True
+    citations_only: bool = False
 
 
 class QueryBody(BaseModel):
@@ -187,6 +189,7 @@ class LogBody(BaseModel):
     text: str
     tags: str | None = None
     kind: str = "note"
+    project: str | None = None
 
 
 class SummaryBody(BaseModel):
@@ -338,7 +341,8 @@ def status():
 def api_ask_models():
     """问答可选模型目录（含 ollama 是否已安装）。"""
     try:
-        installed = Ollama().health()
+        with Ollama() as ol:
+            installed = ol.health()
     except OllamaError:
         installed = []
     return {
@@ -554,6 +558,18 @@ def events(
             )
             if link:
                 item["link"] = link
+            if meta_obj.get("prompt_prefix_pending"):
+                item["prompt_prefix_pending"] = True
+                item["prompt_prefix_hint"] = meta_obj.get(
+                    "prompt_prefix_hint",
+                    "改为 执行- 主题 可进引导语",
+                )
+                if meta_obj.get("chat_title"):
+                    item["chat_title"] = meta_obj["chat_title"]
+            if meta_obj.get("sensitive_warning"):
+                item["sensitive_warning"] = True
+                item["sensitive_patterns"] = meta_obj.get("sensitive_patterns") or []
+                item["sensitive_hint"] = meta_obj.get("sensitive_hint") or ""
             if include_related:
                 rel = event_links.related_for_event(
                     conn,
@@ -567,6 +583,9 @@ def events(
                 if rel:
                     item["related"] = rel
             out.append(item)
+        from . import session_checkpoint
+
+        session_checkpoint.enrich_timeline_items(conn, out)
 
     return {
         "items": out,
@@ -605,6 +624,34 @@ def event_related(uid: str, limit: int = 8):
             limit=max(1, min(limit, 20)),
         )
     return {"uid": uid, "related": rel}
+
+
+@app.get("/api/cursor/sessions/long")
+def api_cursor_long_sessions(limit: int = 30):
+    from . import session_checkpoint
+
+    db.init_db()
+    with db.session() as conn:
+        sessions = session_checkpoint.list_long_sessions(conn, limit=max(1, min(limit, 100)))
+    return {"sessions": sessions, "min_turns": session_checkpoint.min_turns()}
+
+
+@app.post("/api/cursor/sessions/{session_id}/checkpoint")
+def api_cursor_session_checkpoint(session_id: str, force: bool = False):
+    from . import session_checkpoint
+    from .ollama_client import OllamaError
+
+    db.init_db()
+    try:
+        with db.session() as conn:
+            result = session_checkpoint.create_checkpoint(
+                conn, session_id, force=force,
+            )
+        return {"ok": True, **result}
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    except OllamaError as e:
+        return JSONResponse({"error": str(e)}, status_code=502)
 
 
 @app.post("/api/open")
@@ -723,6 +770,7 @@ def _finish_ask(
         "session_id": sid,
         "message_id": msg_id,
         "context": ctx,
+        "citations_only": bool(getattr(body, "citations_only", False)),
         "session": {
             "id": session["id"],
             "title": session["title"],
@@ -781,6 +829,47 @@ def api_ask(body: AskBody):
         )
     except ValueError as e:
         return JSONResponse({"error": str(e)}, status_code=400)
+
+    if body.citations_only:
+        import json as _json
+
+        def gen_citations():
+            try:
+                yield f"data: {_json.dumps({'type': 'status', 'text': '正在检索本地出处…'}, ensure_ascii=False)}\n\n"
+                answer, hits = query.citations_only(
+                    question, body.k, project=body.project, category=body.category,
+                )
+                yield f"data: {_json.dumps({'type': 'meta', 'hits': hits, 'web': [], 'similar': []}, ensure_ascii=False)}\n\n"
+                yield f"data: {_json.dumps({'type': 'token', 'text': answer}, ensure_ascii=False)}\n\n"
+                payload = _finish_ask(body, answer, hits, [], sid, model=model)
+                yield f"data: {_json.dumps({'type': 'done', **payload}, ensure_ascii=False)}\n\n"
+            except OllamaError as e:
+                yield f"data: {_json.dumps({'type': 'error', 'error': str(e)}, ensure_ascii=False)}\n\n"
+            except sqlite3.OperationalError as e:
+                msg = (
+                    "数据库正被其他任务占用（索引/采集/后台同步），请稍候再试。"
+                    if "locked" in str(e).lower() else str(e)
+                )
+                yield f"data: {_json.dumps({'type': 'error', 'error': msg}, ensure_ascii=False)}\n\n"
+
+        if body.stream:
+            return StreamingResponse(
+                gen_citations(),
+                media_type="text/event-stream",
+                headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+            )
+        try:
+            answer, hits = query.citations_only(
+                question, body.k, project=body.project, category=body.category,
+            )
+        except OllamaError as e:
+            return JSONResponse({"error": str(e)}, status_code=502)
+        except sqlite3.OperationalError as e:
+            return _db_busy_response(e)
+        try:
+            return _finish_ask(body, answer, hits, [], sid, model=model)
+        except sqlite3.OperationalError as e:
+            return _db_busy_response(e)
 
     if body.stream:
         import json as _json
@@ -974,8 +1063,20 @@ def api_chat_delete(sid: int):
 @app.post("/api/log")
 def api_log(body: LogBody):
     db.init_db()
+    kind = (body.kind or "note").strip().lower()
+    if kind not in ("note", "decision", "activity"):
+        return JSONResponse({"error": f"不支持的 kind: {body.kind}"}, status_code=400)
+    text = body.text
+    if kind == "activity" and text and not text.strip().startswith("[活动]"):
+        text = f"[活动] {text.strip()}"
     with db.session() as conn:
-        r = notes.add_note(conn, body.text, tags=body.tags, kind=body.kind)
+        r = notes.add_note(
+            conn,
+            text,
+            tags=body.tags,
+            kind=kind,
+            project=body.project,
+        )
         if r == "cursor_echo":
             return {
                 "ok": False,
@@ -1174,6 +1275,11 @@ def api_summary(body: SummaryBody):
 class ReviseBody(BaseModel):
     period: str = "week"
     from_conversations: bool = False
+    confirm: bool | None = None
+
+
+class ConfirmStandardsBody(BaseModel):
+    note: str = ""
 
 
 class ProjectStandardsBody(BaseModel):
@@ -1227,23 +1333,78 @@ def api_standards_version(vid: int):
     return {"content": content}
 
 
+@app.get("/api/standards/pending")
+def api_standards_pending():
+    from . import standards_revision
+
+    governance.ensure_standards()
+    pending = standards_revision.load_pending()
+    if not pending:
+        return {"pending": False}
+    return {
+        "pending": True,
+        "note": pending.get("note"),
+        "created_at": pending.get("created_at"),
+        "period": pending.get("period"),
+        "from_conversations": pending.get("from_conversations"),
+        "diff": pending.get("diff"),
+        "preview": pending.get("after"),
+    }
+
+
+@app.post("/api/standards/confirm")
+def api_standards_confirm(body: ConfirmStandardsBody):
+    from . import standards_revision
+
+    governance.ensure_standards()
+    try:
+        content, version_saved = standards_revision.confirm_pending(note=body.note)
+        governance.generate_rules_all_workspace()
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    return {
+        "ok": True,
+        "content": content,
+        "version_saved": version_saved,
+        "versions": governance.list_versions(),
+    }
+
+
+@app.post("/api/standards/reject")
+def api_standards_reject():
+    from . import standards_revision
+
+    standards_revision.reject_pending()
+    return {"ok": True}
+
+
 @app.post("/api/standards/revise")
 def api_standards_revise(body: ReviseBody):
     try:
         if body.from_conversations:
-            content, version_saved, content_changed = governance.revise_from_conversations(
-                body.period
+            content, version_saved, content_changed, pending = governance.revise_from_conversations(
+                body.period, confirm=body.confirm
             )
         else:
-            content, version_saved, content_changed = governance.revise_from_behavior(
-                body.period
+            content, version_saved, content_changed, pending = governance.revise_from_behavior(
+                body.period, confirm=body.confirm
             )
-        return {
-            "content": content,
+        from . import standards_revision
+
+        payload: dict = {
+            "content": governance.read_standards() if pending else content,
+            "preview": content if pending else None,
             "version_saved": version_saved,
             "content_changed": content_changed,
+            "pending": pending,
             "versions": governance.list_versions(),
         }
+        if pending:
+            pend = standards_revision.load_pending()
+            if pend:
+                payload["diff"] = pend.get("diff")
+                payload["pending_note"] = pend.get("note")
+        return payload
     except OllamaError as e:
         return JSONResponse({"error": str(e)}, status_code=502)
     except ValueError as e:
@@ -1776,8 +1937,68 @@ def api_eval_decision_draft():
     return {"text": "\n".join(lines)}
 
 
+class DecisionDraftBody(BaseModel):
+    project: str = ""
+    session: str = ""
+    turns: int = 30
+
+
+@app.post("/api/decision/draft")
+def api_decision_draft(body: DecisionDraftBody):
+    from . import decision_draft
+
+    db.init_db()
+    return decision_draft.build_draft(
+        session_id=body.session.strip() or None,
+        project=body.project.strip() or None,
+        turn_limit=max(5, min(body.turns, 80)),
+    )
+
+
+@app.get("/api/ship-check")
+def api_ship_check(project: str = ""):
+    from . import ship_check
+
+    db.init_db()
+    return ship_check.run_ship_check(
+        project=project.strip() or None,
+        skip_tests=True,
+    )
+
+
+@app.get("/api/ai-assess/snapshot")
+def api_ai_assess_snapshot():
+    from . import ai_assess
+
+    db.init_db()
+    return ai_assess.collect_snapshot()
+
+
+@app.get("/api/workspace/cursor-alignment")
+def api_workspace_cursor_alignment():
+    return health.cursor_alignment_for_web()
+
+
+@app.get("/api/prompts/suggest-merge")
+def api_prompts_suggest_merge(threshold: float = 0.72, limit: int = 200):
+    db.init_db()
+    with db.session() as conn:
+        clusters = prompt_guides.suggest_merge_clusters(
+            conn,
+            threshold=max(0.5, min(threshold, 0.95)),
+            limit=max(20, min(limit, 500)),
+        )
+    return {"clusters": clusters, "count": len(clusters)}
+
+
 @app.get("/api/compliance")
-def api_compliance():
+def api_compliance(ship: bool = False, days: int = 0):
+    if ship:
+        db.init_db()
+        with db.session() as conn:
+            return compliance.scan_ship_checks(
+                conn, days=days if days > 0 else None,
+            )
     return {"results": compliance.scan_index_roots()}
 
 
@@ -2086,6 +2307,62 @@ def api_ops_overview():
         return ops_panel.overview(conn)
 
 
+@app.get("/api/module-map")
+def api_module_map():
+    return module_map.module_map()
+
+
+class TrackerPauseBody(BaseModel):
+    duration: str = "2h"
+    resume: bool = False
+
+
+@app.get("/api/tracker/status")
+def api_tracker_status():
+    from . import tracker as tr
+
+    cfg = config.load_config()
+    st = tr.pause_status()
+    return {
+        **st,
+        "exclude_apps": list(cfg.get("tracker_exclude_apps") or []),
+        "exclude_bundles": list(cfg.get("tracker_exclude_bundles") or []),
+    }
+
+
+@app.post("/api/tracker/pause")
+def api_tracker_pause(body: TrackerPauseBody):
+    from . import tracker as tr
+
+    try:
+        spec = "off" if body.resume else (body.duration or "2h")
+        result = tr.set_pause(spec)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    return {"ok": True, **result}
+
+
+@app.get("/api/shell/stats")
+def api_shell_stats(days: int = 7):
+    from . import shell_check
+
+    return shell_check.timestamp_stats(days=max(1, min(days, 90)))
+
+
+@app.post("/api/ops/backup/verify")
+def api_ops_backup_verify(body: dict | None = None):
+    from . import backup_ops
+
+    path = (body or {}).get("path", "")
+    if not path:
+        latest = backup_ops.latest_backup_info()
+        path = latest.get("path") or ""
+    if not path:
+        return JSONResponse({"error": "尚无备份可校验"}, status_code=400)
+    result = backup_ops.verify_backup(path)
+    return {"ok": bool(result.get("ok")), **result}
+
+
 @app.post("/api/ops/backup")
 def api_ops_backup():
     db.init_db()
@@ -2155,6 +2432,36 @@ def api_today():
     db.init_db()
     with db.session() as conn:
         return today_panel.generate(conn)
+
+
+class FocusProjectBody(BaseModel):
+    project: str = ""
+
+
+@app.get("/api/focus-project")
+def api_focus_project_get():
+    cfg = config.load_config()
+    raw = (cfg.get("focus_project") or "").strip()
+    pid = workspace.canonical_project_id(raw, cfg) if raw else ""
+    return {
+        "focus_project": pid or raw or None,
+        "projects": query.workspace_list_projects().get("projects", []),
+    }
+
+
+@app.post("/api/focus-project")
+def api_focus_project_set(body: FocusProjectBody):
+    cfg = config.load_config()
+    raw = (body.project or "").strip()
+    if raw:
+        pid = workspace.canonical_project_id(raw, cfg) or workspace.normalize_project_id(raw)
+        if not workspace.is_listable_project_id(pid):
+            return JSONResponse({"error": f"未知项目: {raw}"}, status_code=400)
+        cfg["focus_project"] = pid
+    else:
+        cfg["focus_project"] = ""
+    config.save_config(cfg)
+    return {"focus_project": cfg.get("focus_project") or None, "ok": True}
 
 
 class DailyPlanToggleBody(BaseModel):

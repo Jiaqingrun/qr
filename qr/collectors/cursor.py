@@ -36,14 +36,15 @@ def _texts(message) -> list[str]:
     return out
 
 
-def _clean_project(name: str) -> str:
+def _resolve_project(slug: str, cfg: dict) -> tuple[str, dict]:
     from .. import workspace
 
-    mapped = workspace.project_from_cursor_dir_name(name)
-    if mapped:
-        return mapped
-    parts = name.split("-")
-    return parts[-1] if parts else name
+    pid, needs_review = workspace.resolve_cursor_project(slug, cfg)
+    meta: dict = {"cursor_slug": slug}
+    if needs_review:
+        meta["needs_review"] = True
+        return "", meta
+    return pid or "", meta
 
 
 def _extract_query(text: str) -> str | None:
@@ -164,21 +165,30 @@ def _upsert_query_event(
     ts: int,
     project: str,
     ts_estimated: bool = False,
+    chat_title: str = "",
+    cfg: dict | None = None,
+    meta_extra: dict | None = None,
 ) -> None:
+    from .. import cursor_session_title as cst
+
     uid = f"cursor:{uuid}:q{idx}"
     archive = cursor_archive.turn_path(uuid, idx)
     title = (query.splitlines()[0].strip() if query else "")[:120] or cursor_archive.turn_filename(idx)
     content = str(archive.resolve())
-    meta = json.dumps(
-        {
-            "ts_estimated": bool(ts_estimated),
-            "session_id": uuid,
-            "query_index": idx,
-            "archive_path": cursor_archive.turn_relpath(uuid, idx),
-            "has_reply": bool(reply.strip()),
-        },
-        ensure_ascii=False,
-    )
+    meta_obj: dict = {
+        "ts_estimated": bool(ts_estimated),
+        "session_id": uuid,
+        "query_index": idx,
+        "archive_path": cursor_archive.turn_relpath(uuid, idx),
+        "has_reply": bool(reply.strip()),
+    }
+    if meta_extra:
+        meta_obj.update(meta_extra)
+    from .. import sensitive_scan
+
+    meta_obj.update(sensitive_scan.meta_patch_for_content(query, reply))
+    meta_obj.update(cst.prefix_meta_for_chat(chat_title, project, cfg=cfg))
+    meta = json.dumps(meta_obj, ensure_ascii=False)
     db.upsert_event(
         conn,
         uid=uid,
@@ -204,9 +214,20 @@ def collect(
         return 0
 
     from .. import prompt_guides as pg
+    from .. import workspace
+
+    workspace.sync_cursor_roots_registry(cfg, persist=True)
 
     if backfill:
         _clear_cursor_state(conn)
+
+    titles = {}
+    try:
+        from .. import cursor_session_title as cst
+
+        titles = cst.load_session_titles(cfg=cfg)
+    except Exception:
+        titles = {}
 
     new = 0
     for uuid, jsonl in _iter_transcripts(base).items():
@@ -224,7 +245,8 @@ def collect(
 
         turns = cursor_archive.parse_transcript_turns(jsonl)
         max_q_ts = max((int(t["ts"]) for t in turns), default=0)
-        project = _clean_project(jsonl.parts[len(base.parts)])
+        cursor_slug = jsonl.parts[len(base.parts)]
+        project, slug_meta = _resolve_project(cursor_slug, cfg)
         meta_file = cursor_archive.archive_root() / uuid / "meta.json"
         archive_ver = 0
         if meta_file.is_file():
@@ -242,7 +264,7 @@ def collect(
             or meta_file.stat().st_mtime < jsonl.stat().st_mtime
         )
         if needs_archive:
-            cursor_archive.archive_session(uuid, jsonl, project=project)
+            cursor_archive.archive_session(uuid, jsonl, project=project or cursor_slug)
         stale_ts = (
             not backfill
             and not needs_archive
@@ -276,6 +298,9 @@ def collect(
                 ts=ts,
                 project=project,
                 ts_estimated=bool(t.get("ts_estimated")),
+                chat_title=titles.get(uuid, ""),
+                cfg=cfg,
+                meta_extra=slug_meta,
             )
             new += 1
 
@@ -297,5 +322,12 @@ def collect(
         session_summary.maybe_summarize_session(
             conn, uuid, project=project, turns=turns,
         )
+
+    try:
+        from .. import cursor_session_title as cst
+
+        cst.refresh_prefix_annotations(conn, cfg=cfg)
+    except Exception:
+        pass
 
     return new

@@ -53,6 +53,14 @@ def panel(project: str, days: int = 14) -> dict:
             (since, f"%{project}%", f"%{project}%"),
         ).fetchone()["c"]
 
+        slug = project.split("/")[-1]
+        activity_notes = conn.execute(
+            "SELECT COUNT(*) c FROM events WHERE source='note' AND ts>=? "
+            "AND (uid GLOB 'note:activity:*' OR json_extract(meta,'$.kind')='activity') "
+            "AND (lower(project)=lower(?) OR title LIKE ? OR content LIKE ? OR content LIKE ?)",
+            (since, project, f"%{project}%", f"%{slug}%", f"%{slug}%"),
+        ).fetchone()["c"]
+
         chats = conn.execute(
             "SELECT COUNT(*) c FROM chat_sessions WHERE title LIKE ?",
             (f"%{project}%",),
@@ -76,6 +84,10 @@ def panel(project: str, days: int = 14) -> dict:
     except Exception:
         hits = []
 
+    cursor_open_path = workspace.recommended_cursor_open_path(project)
+    proj_dir = workspace.resolve_project_dir(project)
+    cursor_slug = workspace._cursor_dir_slug(proj_dir) if proj_dir else None
+
     return {
         "project": project,
         "window_days": days,
@@ -89,8 +101,11 @@ def panel(project: str, days: int = 14) -> dict:
         ],
         "cursor_topics": cursor_topics,
         "notes_count": notes,
+        "activity_notes": int(activity_notes),
         "chat_sessions": chats,
         "compliance": comp,
         "stable_facts": facts_list,
         "sample_retrieval": hits,
+        "cursor_open_path": cursor_open_path,
+        "cursor_slug": cursor_slug,
     }

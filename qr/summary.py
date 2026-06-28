@@ -136,6 +136,18 @@ def generate(
         content = f"# 行为总结（{period_desc}）\n\n该时间范围内没有采集到行为数据。"
     else:
         standards = governance.read_standards()
+        focus_note = ""
+        if period_key == "week":
+            cfg = config.load_config()
+            if not (cfg.get("focus_project") or "").strip():
+                import datetime as _dt
+
+                if _dt.date.today().weekday() == 0:
+                    focus_note = (
+                        "\n\n> **洞察提示**：未设置「本周主攻」。"
+                        "可在 Web 洞察页侧栏设置，或在 `~/.qr/config.json` 填写 "
+                        "`focus_project`（如 `dev/qr`），让「接着干」优先收束到单一项目。\n"
+                    )
         prompt = (
             f"# 行为数据摘要（{period_desc}）\n{digest}\n\n"
             f"# 我的个人规范\n{standards}\n\n"
@@ -150,7 +162,7 @@ def generate(
             "## 待办清单（从以上内容提取 3-8 条可勾选待办，使用 - [ ] 格式）"
         )
         body = Ollama().generate(prompt, system=SYSTEM)
-        content = f"# 行为总结（{period_desc}）\n\n{body}\n"
+        content = f"# 行为总结（{period_desc}）\n\n{body}\n{focus_note}"
 
     config.ensure_dirs()
     out = config.SUMMARIES_DIR / f"{period_key}-{label}.md"
