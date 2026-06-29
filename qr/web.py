@@ -21,6 +21,8 @@ from . import (
     collectors,
     compliance,
     config,
+    console_log,
+    console_tail,
     context_meter,
     db,
     digest,
@@ -58,6 +60,7 @@ _db_ready = threading.Event()
 _index_lock = threading.Lock()
 _index_job: dict[str, object] = {
     "running": False,
+    "job_id": None,
     "started_at": None,
     "finished_at": None,
     "stats": None,
@@ -67,31 +70,51 @@ _index_job: dict[str, object] = {
 
 def _run_index_background(
     *,
+    job_id: str,
+    label: str,
     reindex: bool,
     incremental: bool,
     since_days: float | None,
     since_hours: float | None,
 ) -> None:
+    def _progress(path_s: str, n_chunks: int) -> None:
+        console_log.job_progress(
+            job_id,
+            source="web",
+            label=label,
+            text=f"{path_s} · {n_chunks} 块",
+            throttle_key=job_id,
+        )
+
     try:
         stats = indexer.index(
             reindex=reindex,
             incremental=incremental,
             since_days=since_days,
             since_hours=since_hours,
+            progress=_progress,
         )
         err = None
+        done_text = (
+            f"文档 {stats.get('files', 0)} · 向量块 {stats.get('chunks', 0)} · "
+            f"跳过 {stats.get('skipped', 0)}"
+        )
+        console_log.job_done(job_id, source="web", label=label, text=done_text)
     except OllamaError as e:
         stats = None
         err = str(e)
+        console_log.job_done(job_id, source="web", label=label, text=err, error=True)
     except sqlite3.OperationalError as e:
         stats = None
         err = (
             "数据库正被其他任务占用（索引/采集/后台同步），请稍候再试。"
             if "locked" in str(e).lower() else str(e)
         )
+        console_log.job_done(job_id, source="web", label=label, text=err, error=True)
     except Exception as e:
         stats = None
         err = str(e)
+        console_log.job_done(job_id, source="web", label=label, text=err, error=True)
     with _index_lock:
         _index_job["running"] = False
         _index_job["finished_at"] = time.time()
@@ -129,6 +152,7 @@ def _startup_init_db() -> None:
             _log.error("Web 数据库初始化失败: %s", exc)
 
     threading.Thread(target=_init, daemon=True).start()
+    console_tail.start()
 
 
 @app.middleware("http")
@@ -1109,22 +1133,34 @@ def api_log(body: LogBody):
 @app.post("/api/ingest")
 def api_ingest():
     db.init_db()
+    jid = console_log.job_start(source="web", label="行为采集")
     try:
         with db.session() as conn:
             res = collectors.run(conn, ["shell", "git", "files", "cursor", "notes"])
             deduped = notes.purge_cursor_duplicate_notes(conn)
-        return {"ingested": res, "notes_deduped": deduped}
+        total = sum(v for v in res.values() if isinstance(v, int))
+        console_log.job_done(
+            jid, source="web", label="行为采集",
+            text=f"采集 {total} 条 · 去重笔记 {deduped}",
+        )
+        return {"ingested": res, "notes_deduped": deduped, "job_id": jid}
     except sqlite3.OperationalError as e:
+        console_log.job_done(jid, source="web", label="行为采集", text=str(e), error=True)
         return _db_busy_response(e)
 
 
 @app.post("/api/backfill")
 def api_backfill(days: int = 365):
     db.init_db()
+    jid = console_log.job_start(source="web", label=f"全量补录（近 {days} 天）")
     with db.session() as conn:
         res = backfill.run(conn, days=days)
     total = sum(v for k, v in res.items() if isinstance(v, int))
-    return {"result": res, "total": total}
+    console_log.job_done(
+        jid, source="web", label=f"全量补录（近 {days} 天）",
+        text=f"共 {total} 条",
+    )
+    return {"result": res, "total": total, "job_id": jid}
 
 
 @app.post("/api/ingest/cursor")
@@ -1156,8 +1192,15 @@ def api_index(
                 {"error": "索引正在进行中，请稍候完成后再试"},
                 status_code=409,
             )
+        mode = "全量重建" if req.reindex else (
+            "增量" if req.incremental or req.since_days or req.since_hours else "常规"
+        )
+        job_id = console_log.new_job_id("index")
+        label = f"索引 · {mode}"
+        console_log.job_start(source="web", label=label, job_id=job_id)
         _index_job.update({
             "running": True,
+            "job_id": job_id,
             "started_at": time.time(),
             "finished_at": None,
             "stats": None,
@@ -1165,12 +1208,14 @@ def api_index(
         })
     background_tasks.add_task(
         _run_index_background,
+        job_id=job_id,
+        label=label,
         reindex=req.reindex,
         incremental=req.incremental,
         since_days=req.since_days,
         since_hours=req.since_hours,
     )
-    return {"started": True, "running": True}
+    return {"started": True, "running": True, "job_id": job_id}
 
 
 @app.get("/api/index/status")
@@ -2414,16 +2459,21 @@ def api_ops_backup_verify(body: dict | None = None):
 @app.post("/api/ops/backup")
 def api_ops_backup():
     db.init_db()
+    jid = console_log.job_start(source="web", label="数据库备份")
     try:
         result = ops_panel.run_backup()
     except OSError as e:
+        console_log.job_done(jid, source="web", label="数据库备份", text=str(e), error=True)
         return JSONResponse({"error": str(e)}, status_code=500)
+    console_log.job_done(
+        jid, source="web", label="数据库备份", text=result.get("path", ""),
+    )
     ops_timeline.log_safe(
         action="ops.backup",
         title="[知识库] 数据库备份",
         content=result["path"],
     )
-    return {"ok": True, **result}
+    return {"ok": True, **result, "job_id": jid}
 
 
 @app.post("/api/ops/backup/restore")
@@ -2448,7 +2498,15 @@ def api_ops_backup_restore(body: dict):
 @app.post("/api/ops/index-health")
 def api_ops_index_health(body: dict | None = None):
     cleanup = bool((body or {}).get("cleanup"))
-    return ops_panel.index_health(cleanup=cleanup)
+    label = "索引健康" + (" · 清理孤儿" if cleanup else "")
+    jid = console_log.job_start(source="web", label=label)
+    rep = ops_panel.index_health(cleanup=cleanup)
+    orphans = (rep.get("cleanup") or {}).get("documents_removed", 0) if cleanup else 0
+    text = f"文档 {rep.get('documents', '?')} · 缺失源文件 {rep.get('missing_files', '?')}"
+    if cleanup:
+        text += f" · 已清理 {orphans}"
+    console_log.job_done(jid, source="web", label=label, text=text)
+    return {**rep, "job_id": jid}
 
 
 @app.get("/api/changelog")
@@ -2602,6 +2660,7 @@ def api_ops_optimize():
     from . import optimize as opt
 
     db.init_db()
+    jid = console_log.job_start(source="web", label="一键优化")
     before = opt.metrics_snapshot()
     try:
         result = opt.run(
@@ -2611,10 +2670,75 @@ def api_ops_optimize():
             merge_prompts=True,
         )
     except OllamaError as e:
+        console_log.job_done(jid, source="web", label="一键优化", text=str(e), error=True)
         return JSONResponse({"error": str(e)}, status_code=502)
     except Exception as e:
+        console_log.job_done(jid, source="web", label="一键优化", text=str(e), error=True)
         return JSONResponse({"error": str(e)}, status_code=500)
-    return {"ok": True, "before": before, "after": result["after"], "steps": result["steps"]}
+    steps = ", ".join(result.get("steps") or [])
+    console_log.job_done(jid, source="web", label="一键优化", text=steps or "完成")
+    return {"ok": True, "before": before, "after": result["after"], "steps": result["steps"], "job_id": jid}
+
+
+@app.get("/api/console/events")
+def api_console_events(
+    since: int = 0,
+    limit: int = 200,
+    source: str = "",
+    agent: str = "",
+):
+    events = console_log.tail(
+        since_ts=since,
+        limit=limit,
+        source=source.strip(),
+        agent=agent.strip(),
+    )
+    return {"events": events}
+
+
+@app.get("/api/console/jobs")
+def api_console_jobs():
+    jobs = console_log.active_jobs()
+    with _index_lock:
+        if _index_job.get("running") and _index_job.get("job_id"):
+            jid = str(_index_job["job_id"])
+            if not any(j.get("job_id") == jid for j in jobs):
+                jobs.append({
+                    "job_id": jid,
+                    "label": "索引",
+                    "source": "web",
+                    "started_at": _index_job.get("started_at"),
+                })
+    return {"jobs": jobs}
+
+
+@app.get("/api/console/agents")
+def api_console_agents():
+    return {"agents": console_log.agent_log_files()}
+
+
+@app.get("/api/console/stream")
+def api_console_stream(since: int = 0):
+    import json as _json
+
+    def gen():
+        if since:
+            for ev in console_log.tail(since_ts=since, limit=500):
+                yield f"data: {_json.dumps(ev, ensure_ascii=False)}\n\n"
+        while True:
+            for ev in console_log.subscribe(timeout=15.0):
+                if ev.get("kind") == "heartbeat":
+                    yield ": heartbeat\n\n"
+                    continue
+                if since and int(ev.get("ts") or 0) <= since:
+                    continue
+                yield f"data: {_json.dumps(ev, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 def run(host: str = "127.0.0.1", port: int = 8765):

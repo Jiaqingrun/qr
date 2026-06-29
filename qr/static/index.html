@@ -711,6 +711,26 @@
     max-height:28vh;overflow:auto;margin:0 0 12px;padding-right:4px;font-family:var(--font);
   }
   .panel-pre--tall{max-height:48vh}
+  .console-shell{display:flex;flex-direction:column;flex:1;min-height:0;height:100%}
+  .view--fill #view-console .page-body{display:flex;flex-direction:column;flex:1;min-height:0}
+  .view--fill #view-console .console-shell .card-head{margin-bottom:8px}
+  .console-feed{
+    flex:1;min-height:0;overflow:auto;margin:0;padding:10px 12px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    font-size:12px;line-height:1.55;color:var(--text2);background:rgba(0,0,0,.22);
+    border-radius:var(--r-sm);border:1px solid var(--border);
+  }
+  .console-line{padding:1px 0 1px 8px;border-left:3px solid transparent;word-break:break-all}
+  .console-line--web{border-left-color:var(--lime)}
+  .console-line--cli{border-left-color:var(--blue)}
+  .console-line--agent{border-left-color:var(--violet)}
+  .console-line--start{color:var(--mint);font-weight:600}
+  .console-line--done{color:var(--mint)}
+  .console-line--error{color:var(--rose)}
+  .console-line--progress{color:var(--muted)}
+  .console-line--stderr{color:var(--rose);opacity:.9}
+  .console-meta{color:var(--muted);margin-right:6px;font-variant-numeric:tabular-nums}
+  .nav-item.nav-busy .nav-dot{box-shadow:0 0 0 2px rgba(110,168,254,.45)}
   .filter-bar{
     display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px;
     padding:10px 12px;border-radius:var(--r-sm);background:rgba(0,0,0,.15);border:1px solid var(--border);
@@ -1523,6 +1543,7 @@
       <button class="nav-item" data-v="summary"><span class="nav-dot" style="color:var(--amber);background:var(--amber)"></span><span class="nav-title">总结</span><span class="nav-sub"></span></button>
       <button class="nav-item" data-v="timeline"><span class="nav-dot" style="color:var(--pink);background:var(--pink)"></span><span class="nav-title">时间线</span><span class="nav-sub"></span></button>
       <button class="nav-item" data-v="prompts"><span class="nav-dot" style="color:var(--lime);background:var(--lime)"></span><span class="nav-title">引导语</span><span class="nav-sub"></span></button>
+      <button class="nav-item" data-v="console"><span class="nav-dot" style="color:var(--cyan);background:var(--cyan)"></span><span class="nav-title">终端</span><span class="nav-sub"></span></button>
       <div class="nav-label">治理</div>
       <button class="nav-item" data-v="standards"><span class="nav-dot" style="color:var(--lime);background:var(--lime)"></span><span class="nav-title">规范</span><span class="nav-sub"></span></button>
       <button class="nav-item" data-v="stdlog"><span class="nav-dot" style="color:var(--amber);background:var(--amber)"></span><span class="nav-title">沿革</span><span class="nav-sub"></span></button>
@@ -2187,6 +2208,34 @@
         </div>
       </section>
 
+      <section class="view view--fill" id="view-console">
+        <div class="page-ops">
+        <div class="toolbar-stack">
+          <div class="toolbar-row">
+            <span class="toolbar-label">筛选</span>
+            <select class="input input-sm" id="consoleSourceFilter" title="来源">
+              <option value="">全部来源</option>
+              <option value="web">Web</option>
+              <option value="cli">CLI</option>
+              <option value="agent">后台任务</option>
+            </select>
+            <select class="input input-sm" id="consoleAgentFilter" title="launchd agent" disabled>
+              <option value="">全部 agent</option>
+            </select>
+            <button type="button" class="btn btn-ghost btn-sm" id="consoleFollowBtn" aria-pressed="true">跟随输出</button>
+            <button type="button" class="btn btn-ghost btn-sm" id="consoleClearBtn">清空视图</button>
+            <span class="hint" id="consoleHint" style="margin:0"></span>
+          </div>
+        </div>
+        </div>
+        <div class="page-body">
+        <div class="card console-shell">
+          <div class="card-head">操作控制台 · <span id="consoleJobsHint" class="hint" style="display:inline;text-transform:none;letter-spacing:0;font-weight:500">空闲</span></div>
+          <div class="console-feed" id="consoleFeed" role="log" aria-live="polite"><div class="hint">加载中…</div></div>
+        </div>
+        </div>
+      </section>
+
       <section class="view view--fill" id="view-ops">
         <div class="page-ops">
         <div class="toolbar-stack">
@@ -2361,6 +2410,7 @@ const PAGE={
   stdlog:{title:'规范沿革',desc:'自第 2 版起仅显示相对上一版的增加、删减与修改'},
   insight:{title:'洞察',desc:'每日摘要 · 合规 · 知识图谱 · RAG 评测'},
   prompts:{title:'引导语',desc:'Cursor 问话自动采集 · 分类 · 多段合并为可复用提示'},
+  console:{title:'终端',desc:'Web / CLI / 后台任务 · 实时输出'},
   ops:{title:'运维',desc:'自检 · 备份 · 定时任务 · Git 目录 · 散落项目导入'},
 };
 let projectCatalog={categories:[],projects:[],by_category:{}};
@@ -2472,6 +2522,7 @@ function qrRunStart({id,label,group='misc',hintEl=null}){
   qrRunApplyHint(t);
   rebuildBadgeItems();
   renderBadgeTicker();
+  syncConsoleNavBusy();
   return id;
 }
 
@@ -2509,6 +2560,7 @@ function qrRunEnd(id,{message='',error=false,notify=true}={}){
   }
   rebuildBadgeItems();
   renderBadgeTicker();
+  syncConsoleNavBusy();
   if(notify&&KB_NOTIFY_GROUPS.has(group)){
     const title=`QR · ${label}${error?' 失败':' 完成'}`;
     const body=(message||'').replace(/^出错：/,'').trim()
@@ -2586,6 +2638,7 @@ function switchView(v){
   }
   if(v==='relations') loadRelations();
   if(v==='prompts') loadPrompts();
+  if(v==='console') loadConsole();
   qrRunSyncGroupHints();
   scheduleProjectFocusFetch();
   renderNavSubs();
@@ -3497,6 +3550,7 @@ function buildNavSubLines(s){
     standards:[`${fmt(s.standards_versions||0)} 个版本`,s.health_ok?'规范就绪':'待检查'],
     stdlog:['仅增删改','自第 2 版起'],
     insight:['RAG 评测','合规 · 图谱'],
+    console:['实时输出','Web · CLI · 后台'],
     ops:['备份 · 定时','自检 · 导入'],
   };
 }
@@ -6070,6 +6124,203 @@ function renderOpsSchedule(d){
   ];
   $('#opsScheduleOut').textContent=lines.filter(Boolean).join('\n');
 }
+
+const consoleState={
+  events:[],
+  lastTs:0,
+  clearedAt:0,
+  follow:true,
+  source:'',
+  agent:'',
+  es:null,
+  maxLines:800,
+  userScrolled:false,
+};
+
+function syncConsoleNavBusy(){
+  const btn=document.querySelector('.nav-item[data-v="console"]');
+  if(btn) btn.classList.toggle('nav-busy',qrRunBusy());
+}
+
+function consoleLineClass(ev){
+  const src=(ev.source||'web').replace(/[^a-z]/gi,'');
+  const parts=['console-line',`console-line--${src}`];
+  if(ev.kind) parts.push(`console-line--${ev.kind}`);
+  return parts.join(' ');
+}
+
+function formatConsoleTime(ts){
+  if(!ts) return '--:--:--';
+  const d=new Date(ts*1000);
+  return d.toLocaleTimeString('zh-CN',{hour12:false});
+}
+
+function consoleLineHtml(ev){
+  const kind=ev.kind||'';
+  const src=ev.source||'?';
+  let agentTag='';
+  if(ev.agent){
+    const short=String(ev.agent).split('.').pop();
+    agentTag=` <span class="console-meta">${esc(short)}</span>`;
+  }
+  let head='';
+  if(kind==='start') head=`▶ ${esc(ev.label||'开始')}`;
+  else if(kind==='done') head=`✓ ${esc(ev.label||'完成')}`;
+  else if(kind==='error') head=`✗ ${esc(ev.label||'失败')}`;
+  else if(kind==='progress') head='…';
+  const text=ev.text?esc(ev.text):'';
+  const body=text?(head?`${head} · ${text}`:text):head;
+  return `<div class="${consoleLineClass(ev)}"><span class="console-meta">[${formatConsoleTime(ev.ts)}][${esc(src)}]</span>${agentTag}${body||''}</div>`;
+}
+
+function renderConsoleFeed(){
+  const feed=$('#consoleFeed');
+  if(!feed) return;
+  if(!consoleState.events.length){
+    feed.innerHTML='<div class="hint">暂无输出。Web 操作、终端 qr 命令与 launchd 后台日志会显示在这里。</div>';
+    return;
+  }
+  feed.innerHTML=consoleState.events.map(consoleLineHtml).join('');
+  if(consoleState.follow&&!consoleState.userScrolled){
+    feed.scrollTop=feed.scrollHeight;
+  }
+}
+
+function appendConsoleEvent(ev){
+  if(!ev||ev.kind==='heartbeat') return;
+  if((ev.ts||0)<=consoleState.clearedAt) return;
+  if(consoleState.source&&ev.source!==consoleState.source) return;
+  if(consoleState.agent&&ev.agent!==consoleState.agent) return;
+  consoleState.lastTs=Math.max(consoleState.lastTs,ev.ts||0);
+  consoleState.events.push(ev);
+  if(consoleState.events.length>consoleState.maxLines){
+    consoleState.events=consoleState.events.slice(-consoleState.maxLines);
+  }
+  renderConsoleFeed();
+}
+
+function closeConsoleStream(){
+  if(consoleState.es){
+    consoleState.es.close();
+    consoleState.es=null;
+  }
+}
+
+function openConsoleStream(){
+  closeConsoleStream();
+  const since=consoleState.lastTs||0;
+  consoleState.es=new EventSource(`/api/console/stream?since=${since}`);
+  consoleState.es.onmessage=(e)=>{
+    try{appendConsoleEvent(JSON.parse(e.data))}catch(_){}
+  };
+  consoleState.es.onerror=()=>{
+    closeConsoleStream();
+    window.setTimeout(()=>{
+      if($('#view-console')?.classList.contains('active')) openConsoleStream();
+    },3000);
+  };
+}
+
+async function updateConsoleJobsHint(){
+  const el=$('#consoleJobsHint');
+  if(!el) return;
+  try{
+    const r=await api('/api/console/jobs');
+    const jobs=r.jobs||[];
+    if(!jobs.length){el.textContent='空闲';return}
+    el.textContent=`进行中 ${jobs.length}：${jobs.map(j=>j.label||j.job_id).join(' · ')}`;
+  }catch(_){
+    el.textContent=qrRunBusy()?'有任务进行中':'空闲';
+  }
+}
+
+async function loadConsoleAgents(){
+  const sel=$('#consoleAgentFilter');
+  if(!sel) return;
+  try{
+    const r=await api('/api/console/agents');
+    const agents=r.agents||[];
+    const cur=sel.value;
+    sel.innerHTML='<option value="">全部 agent</option>'+agents.map(a=>
+      `<option value="${esc(a.label)}">${esc(a.title||a.name||a.label)}</option>`
+    ).join('');
+    if(cur) sel.value=cur;
+  }catch(_){}
+}
+
+async function loadConsole(){
+  closeConsoleStream();
+  consoleState.userScrolled=false;
+  const hint=$('#consoleHint');
+  if(hint) hint.textContent='';
+  await loadConsoleAgents();
+  const agentSel=$('#consoleAgentFilter');
+  if(agentSel){
+    agentSel.disabled=consoleState.source!=='agent';
+    agentSel.style.opacity=agentSel.disabled?'0.5':'1';
+  }
+  try{
+    const params=new URLSearchParams({limit:'300'});
+    if(consoleState.source) params.set('source',consoleState.source);
+    if(consoleState.agent) params.set('agent',consoleState.agent);
+    const r=await api('/api/console/events?'+params);
+    consoleState.events=(r.events||[]).filter(ev=>(ev.ts||0)>consoleState.clearedAt);
+    if(consoleState.events.length){
+      consoleState.lastTs=Math.max(...consoleState.events.map(ev=>ev.ts||0));
+    }
+    renderConsoleFeed();
+    openConsoleStream();
+    await updateConsoleJobsHint();
+  }catch(e){
+    if(hint) hint.textContent='加载失败：'+(e.message||'');
+    const feed=$('#consoleFeed');
+    if(feed) feed.innerHTML='<div class="hint">无法连接控制台 API。请 qr web --restart 后强刷。</div>';
+  }
+}
+
+$('#consoleSourceFilter')?.addEventListener('change',(e)=>{
+  consoleState.source=e.target.value||'';
+  const agentSel=$('#consoleAgentFilter');
+  if(agentSel){
+    agentSel.disabled=consoleState.source!=='agent';
+    agentSel.style.opacity=agentSel.disabled?'0.5':'1';
+    if(agentSel.disabled) agentSel.value='';
+    consoleState.agent='';
+  }
+  loadConsole();
+});
+$('#consoleAgentFilter')?.addEventListener('change',(e)=>{
+  consoleState.agent=e.target.value||'';
+  loadConsole();
+});
+$('#consoleFollowBtn')?.addEventListener('click',()=>{
+  consoleState.follow=!consoleState.follow;
+  consoleState.userScrolled=!consoleState.follow;
+  const btn=$('#consoleFollowBtn');
+  if(btn){
+    btn.textContent=consoleState.follow?'跟随输出':'已暂停跟随';
+    btn.setAttribute('aria-pressed',consoleState.follow?'true':'false');
+  }
+  if(consoleState.follow) renderConsoleFeed();
+});
+$('#consoleClearBtn')?.addEventListener('click',()=>{
+  consoleState.clearedAt=consoleState.lastTs||Math.floor(Date.now()/1000);
+  consoleState.events=[];
+  renderConsoleFeed();
+});
+$('#consoleFeed')?.addEventListener('scroll',(e)=>{
+  const el=e.target;
+  const atBottom=el.scrollHeight-el.scrollTop-el.clientHeight<48;
+  consoleState.userScrolled=!atBottom;
+  if(atBottom) consoleState.follow=true;
+});
+if(!window._consoleJobsTick){
+  window._consoleJobsTick=setInterval(()=>{
+    if($('#view-console')?.classList.contains('active')) updateConsoleJobsHint();
+    else if(qrRunBusy()) syncConsoleNavBusy();
+  },4000);
+}
+
 async function uninstallOpsSchedule(label, title){
   const hints={
     'com.qr.web':'卸载后 Web 后台将停止，需手动运行 qr web 或重新安装任务。',
