@@ -26,9 +26,27 @@ def needs_boot() -> bool:
     return on_demand_enabled() and not _ping()
 
 
-def _ollama_bin() -> str:
+def _ollama_bin_optional() -> str | None:
     cfg = config.load_config()
-    path = (cfg.get("ollama_bin") or "").strip() or shutil.which("ollama")
+    path = (cfg.get("ollama_bin") or "").strip()
+    if path:
+        return path
+    found = shutil.which("ollama")
+    if found:
+        return found
+    for candidate in (
+        "/usr/local/bin/ollama",
+        "/opt/homebrew/bin/ollama",
+        os.path.expanduser("~/Applications/Ollama.app/Contents/Resources/ollama"),
+        "/Applications/Ollama.app/Contents/Resources/ollama",
+    ):
+        if os.path.isfile(candidate):
+            return candidate
+    return None
+
+
+def _ollama_bin() -> str:
+    path = _ollama_bin_optional()
     if not path:
         raise OllamaError("未找到 ollama 命令，请先安装 Ollama")
     return path
@@ -91,6 +109,30 @@ def _start_serve() -> None:
     _wait_ready(boot_timeout)
 
 
+def _unload_model_by_name(name: str) -> None:
+    try:
+        httpx.post(
+            f"{_base_url()}/api/generate",
+            json={"model": name, "prompt": "", "keep_alive": 0},
+            timeout=30.0,
+            trust_env=False,
+        )
+    except httpx.HTTPError:
+        pass
+    binary = _ollama_bin_optional()
+    if not binary:
+        return
+    try:
+        subprocess.run(
+            [binary, "stop", name],
+            capture_output=True,
+            timeout=30,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+
 def _unload_models() -> None:
     try:
         r = httpx.get(f"{_base_url()}/api/ps", timeout=10.0, trust_env=False)
@@ -98,12 +140,8 @@ def _unload_models() -> None:
         for m in r.json().get("models") or []:
             name = m.get("name")
             if name:
-                subprocess.run(
-                    [_ollama_bin(), "stop", name],
-                    capture_output=True,
-                    timeout=30,
-                )
-    except (httpx.HTTPError, subprocess.TimeoutExpired, OSError):
+                _unload_model_by_name(name)
+    except httpx.HTTPError:
         pass
 
 
@@ -143,6 +181,29 @@ def session_end() -> None:
         _unload_models()
         if _started_by_qr:
             _stop_serve()
+
+
+def unload_models() -> list[str]:
+    """卸载当前已加载模型；不依赖 PATH 中的 ollama CLI。"""
+    names = []
+    try:
+        r = httpx.get(f"{_base_url()}/api/ps", timeout=10.0, trust_env=False)
+        r.raise_for_status()
+        names = [str(m.get("name")) for m in (r.json().get("models") or []) if m.get("name")]
+    except httpx.HTTPError:
+        return []
+    for name in names:
+        _unload_model_by_name(name)
+    return names
+
+
+def release_all() -> None:
+    """强制释放 QR 持有的 Ollama 会话（unload 模型并停止 QR 拉起的 serve）。"""
+    global _refcount
+    with _lock:
+        _refcount = 0
+        _unload_models()
+        _stop_serve()
 
 
 class ollama_session:

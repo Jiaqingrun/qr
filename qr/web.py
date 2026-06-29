@@ -108,6 +108,17 @@ def _db_busy_response(exc: sqlite3.OperationalError) -> JSONResponse:
     return JSONResponse({"error": str(exc)}, status_code=500)
 
 
+def _ai_power_block() -> JSONResponse | None:
+    from . import power_mode
+
+    if power_mode.is_lite():
+        return JSONResponse(
+            {"error": "AI 服务已关闭。请在侧栏打开「AI 服务」开关后再试。"},
+            status_code=503,
+        )
+    return None
+
+
 @app.on_event("startup")
 def _startup_init_db() -> None:
     def _init() -> None:
@@ -285,7 +296,10 @@ class NotifyBody(BaseModel):
 
 @app.get("/")
 def index():
-    return FileResponse(STATIC / "index.html")
+    return FileResponse(
+        STATIC / "index.html",
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+    )
 
 
 @app.get("/api/status")
@@ -669,6 +683,9 @@ def api_open(body: OpenBody):
 
 @app.post("/api/query")
 def api_query(body: QueryBody):
+    blocked = _ai_power_block()
+    if blocked:
+        return blocked
     try:
         return {
             "hits": query.search(
@@ -785,6 +802,9 @@ def _finish_ask(
 @app.post("/api/ask")
 def api_ask(body: AskBody):
     db.init_db()
+    blocked = _ai_power_block()
+    if blocked:
+        return blocked
     question = body.question.strip()
     if not question:
         return JSONResponse({"error": "问题不能为空"}, status_code=400)
@@ -2339,6 +2359,34 @@ def api_tracker_pause(body: TrackerPauseBody):
         result = tr.set_pause(spec)
     except ValueError as e:
         return JSONResponse({"error": str(e)}, status_code=400)
+    return {"ok": True, **result}
+
+
+class PowerBody(BaseModel):
+    enabled: bool | None = None
+
+
+@app.get("/api/power/status")
+def api_power_status():
+    from . import power_mode
+
+    return {"ok": True, **power_mode.status()}
+
+
+@app.post("/api/power")
+def api_power_set(body: PowerBody | None = None):
+    from . import power_mode
+
+    payload = body or PowerBody()
+    if payload.enabled is None:
+        result = power_mode.toggle()
+    else:
+        result = power_mode.set_enabled(payload.enabled)
+    ops_timeline.log_safe(
+        action="power.mode",
+        title="[知识库] AI 服务",
+        content=result.get("message") or result.get("hint") or result.get("mode", ""),
+    )
     return {"ok": True, **result}
 
 

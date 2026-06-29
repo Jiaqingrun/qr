@@ -82,6 +82,33 @@ class TestWebApi(unittest.TestCase):
         )
         self.assertEqual(r.status_code, 400)
 
+    def test_api_power_status(self):
+        r = self.client.get("/api/power/status")
+        self.assertEqual(r.status_code, 200)
+        data = r.json()
+        self.assertTrue(data.get("ok"))
+        self.assertIn("ai_enabled", data)
+        self.assertIn("hint", data)
+
+    def test_api_power_set(self):
+        with mock.patch("qr.power_mode.set_enabled") as set_enabled:
+            set_enabled.return_value = {
+                "mode": "lite",
+                "ai_enabled": False,
+                "hint": "关 · 已停 AI",
+                "message": "AI 服务已关闭（省电）",
+            }
+            r = self.client.post("/api/power", json={"enabled": False})
+        self.assertEqual(r.status_code, 200)
+        self.assertFalse(r.json()["ai_enabled"])
+        set_enabled.assert_called_once_with(False)
+
+    def test_api_query_blocked_when_lite(self):
+        with mock.patch("qr.power_mode.is_lite", return_value=True):
+            r = self.client.post("/api/query", json={"text": "test", "k": 3})
+        self.assertEqual(r.status_code, 503)
+        self.assertIn("AI 服务已关闭", r.json()["error"])
+
     def test_sync_git_scan_roots(self):
         with tempfile.TemporaryDirectory() as td:
             cfg_path = Path(td) / "config.json"

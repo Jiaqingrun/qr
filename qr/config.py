@@ -23,7 +23,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "ollama_url": "http://localhost:11434",
-    "ollama_on_demand": False,
+    "ollama_on_demand": True,
+    "power_mode": "full",
     "ollama_boot_timeout_seconds": 90,
     "ollama_flash_attention": True,
     "embed_model": "qwen3-embedding:8b",
