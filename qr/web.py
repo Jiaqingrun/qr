@@ -2725,14 +2725,13 @@ def api_console_stream(since: int = 0):
         if since:
             for ev in console_log.tail(since_ts=since, limit=500):
                 yield f"data: {_json.dumps(ev, ensure_ascii=False)}\n\n"
-        while True:
-            for ev in console_log.subscribe(timeout=15.0):
-                if ev.get("kind") == "heartbeat":
-                    yield ": heartbeat\n\n"
-                    continue
-                if since and int(ev.get("ts") or 0) <= since:
-                    continue
-                yield f"data: {_json.dumps(ev, ensure_ascii=False)}\n\n"
+        for ev in console_log.subscribe(timeout=15.0):
+            if ev.get("kind") == "heartbeat":
+                yield ": heartbeat\n\n"
+                continue
+            if since and int(ev.get("ts") or 0) <= since:
+                continue
+            yield f"data: {_json.dumps(ev, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(
         gen(),

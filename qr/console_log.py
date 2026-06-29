@@ -237,14 +237,17 @@ def subscribe(timeout: float = 15.0) -> Iterator[dict[str, Any]]:
         _subscribers.append((cond, buf))
     try:
         while True:
+            batch: list[dict[str, Any]] = []
             with cond:
                 if not buf:
                     cond.wait(timeout=timeout)
-                if buf:
-                    while buf:
-                        yield buf.popleft()
-                else:
-                    yield {"ts": int(time.time()), "kind": "heartbeat"}
+                while buf:
+                    batch.append(buf.popleft())
+            if batch:
+                for ev in batch:
+                    yield ev
+            else:
+                yield {"ts": int(time.time()), "kind": "heartbeat"}
     finally:
         with _lock:
             if (cond, buf) in _subscribers:

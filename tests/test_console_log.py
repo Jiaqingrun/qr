@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -76,6 +77,16 @@ class TestConsoleLog(unittest.TestCase):
             th.join()
         rows = console_log.tail(limit=1000)
         self.assertEqual(len(rows), 80)
+
+    def test_subscribe_yields_without_lock_error(self):
+        it = console_log.subscribe(timeout=0.05)
+        try:
+            for _ in range(8):
+                console_log.emit(source="web", kind="stdout", text="tick")
+                ev = next(it)
+                self.assertIn(ev.get("kind"), ("stdout", "heartbeat"))
+        finally:
+            it.close()
 
 
 if __name__ == "__main__":
