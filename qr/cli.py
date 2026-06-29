@@ -265,6 +265,7 @@ def doctor(
         False, "--fix", help="全量自检并清理：无效索引/向量块、幽灵项目、沿革噪声、同步稳定事实",
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="仅统计将清理项，不写入"),
+    json_out: bool = typer.Option(False, "--json", help="输出 JSON（供 TermDesk 等工具解析）"),
 ):
     """检查各子系统边界状态；--fix 时自动清理可修复项。"""
     from . import maintenance
@@ -322,6 +323,19 @@ def doctor(
         console.print()
 
     rep = health.diagnose()
+    if json_out:
+        payload = {
+            "ok": rep["ok"],
+            "issue_count": len(rep["issues"]),
+            "warn_count": sum(1 for i in rep["issues"] if i["level"] == "warn"),
+            "error_count": sum(1 for i in rep["issues"] if i["level"] == "error"),
+            "issues": rep["issues"],
+            "ok_items": rep["ok_items"],
+        }
+        console.print(json.dumps(payload, ensure_ascii=False))
+        if any(i["level"] == "error" for i in rep["issues"]):
+            raise typer.Exit(1)
+        return
     if rep["ok_items"]:
         for line in rep["ok_items"]:
             console.print(f"[green]✓[/] {line}")
