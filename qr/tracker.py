@@ -69,6 +69,9 @@ def set_pause(duration_spec: str) -> dict:
 
 
 def is_tracking_paused() -> bool:
+    cfg = config.load_config()
+    if str(cfg.get("power_mode", "full")).strip().lower() == "lite":
+        return True
     return pause_status()["paused"]
 
 

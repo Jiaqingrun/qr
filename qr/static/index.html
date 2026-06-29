@@ -205,7 +205,23 @@
   .nav-item.active[data-v="insight"]{box-shadow:inset 3px 0 0 var(--rose),var(--shadow-sm)}
   .nav-item.active[data-v="ops"]{box-shadow:inset 3px 0 0 var(--blue),var(--shadow-sm)}
   .nav-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;box-shadow:0 0 8px currentColor;opacity:.9}
-  .sidebar-foot{padding:8px 6px 6px;border-top:1px solid var(--border);margin-top:auto;flex-shrink:0}
+  .sidebar-foot{
+    padding:8px 6px 6px;border-top:1px solid var(--border);margin-top:auto;flex-shrink:0;
+    position:relative;z-index:40;isolation:isolate;
+  }
+  .sidebar-power{padding:0 2px 8px;flex-shrink:0}
+  .toggle--sidebar{
+    width:100%;padding:6px 8px;border-radius:8px;border:1px solid var(--border);
+    background:rgba(255,255,255,.02);position:relative;z-index:1;
+    font:inherit;text-align:left;color:inherit;appearance:none;-webkit-appearance:none;
+    cursor:pointer;pointer-events:auto;touch-action:manipulation;
+  }
+  .toggle--sidebar:not(.on){
+    border-color:rgba(255,200,120,.28);background:rgba(255,200,120,.05);
+  }
+  .toggle--sidebar:not(.on) .toggle-title{color:var(--amber)}
+  .toggle--sidebar:not(.on) .toggle-state{color:rgba(255,200,120,.88)}
+  .toggle--sidebar.is-busy{opacity:.55;cursor:wait}
   .foot-label{
     font-size:10px;color:var(--muted);letter-spacing:.06em;margin-bottom:4px;padding:0 2px;
     display:flex;align-items:center;justify-content:space-between;gap:6px;
@@ -380,7 +396,7 @@
     position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;
     padding:24px;background:var(--bg0);color:var(--text);
   }
-  .boot-offline[hidden]{display:none!important}
+  .boot-offline[hidden]{display:none!important;pointer-events:none!important;visibility:hidden!important}
   .boot-offline-card{
     width:min(420px,100%);padding:22px 24px;border-radius:var(--r);
     border:1px solid var(--border2);background:var(--surface);box-shadow:var(--shadow-lg);
@@ -1514,6 +1530,15 @@
       <button class="nav-item" data-v="ops"><span class="nav-dot" style="color:var(--blue);background:var(--blue)"></span><span class="nav-title">运维</span><span class="nav-sub"></span></button>
     </nav>
     <div class="sidebar-foot">
+      <div class="sidebar-power" id="sidebarPower">
+        <button type="button" class="toggle toggle--sidebar on" id="aiPowerToggle" role="switch" aria-checked="true" title="关闭后停止 Ollama 并暂停屏幕采样；Web 与时间线仍可用" onclick="return window.qrAiPowerClick(event)">
+          <span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span>
+          <span class="toggle-label">
+            <span class="toggle-title">AI 服务</span>
+            <span class="toggle-state" id="aiPowerHint">加载中…</span>
+          </span>
+        </button>
+      </div>
       <div class="foot-label">
         <span>系统状态</span>
         <span id="sidebarStatsSummary" title="健康检查摘要">加载中…</span>
@@ -3360,6 +3385,65 @@ syncWebToggle();
 syncCitationsToggle();
 syncSymbolPill();
 
+let aiPowerBusy=false;
+let aiPowerEnabled=true;
+window.qrAiPowerClick=function(ev){
+  if(ev){
+    ev.preventDefault();
+    ev.stopPropagation();
+  }
+  if(aiPowerBusy) return false;
+  setAiPower(!aiPowerEnabled);
+  return false;
+};
+function renderAiPower(s){
+  if(!s) return;
+  const on=!!s.ai_enabled;
+  aiPowerEnabled=on;
+  const toggle=$('#aiPowerToggle');
+  const hint=$('#aiPowerHint');
+  if(toggle){
+    toggle.classList.toggle('on',on);
+    toggle.classList.toggle('is-busy',aiPowerBusy);
+    toggle.setAttribute('aria-checked',on?'true':'false');
+    toggle.disabled=!!aiPowerBusy;
+    toggle.title=on
+      ? 'AI 已开启：问答、检索可用。点击关闭以省电（停 Ollama、暂停采样）'
+      : 'AI 已关闭：省电模式。Web 与时间线仍可用';
+  }
+  if(hint) hint.textContent=s.hint||(on?'开 · 问答与检索可用':'关 · 省电');
+}
+async function loadAiPower(){
+  try{
+    const s=await api('/api/power/status');
+    renderAiPower(s);
+  }catch(_e){
+    const hint=$('#aiPowerHint');
+    if(hint) hint.textContent='状态未知';
+  }
+}
+async function setAiPower(enabled){
+  if(aiPowerBusy) return;
+  aiPowerBusy=true;
+  const toggle=$('#aiPowerToggle');
+  toggle?.classList.add('is-busy');
+  if(toggle) toggle.disabled=true;
+  renderAiPower({ai_enabled:aiPowerEnabled,hint:'切换中…'});
+  try{
+    const r=await api('/api/power',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled})});
+    renderAiPower(r);
+    await loadStats();
+  }catch(e){
+    await loadAiPower();
+    alert('AI 服务切换失败：'+(e.message||'请求失败'));
+  }finally{
+    aiPowerBusy=false;
+    toggle?.classList.remove('is-busy');
+    if(toggle) toggle.disabled=false;
+    await loadAiPower();
+  }
+}
+
 // Stats — 四象限 1×4（采集 / 索引 / 对话 / 运维）
 const pgStatFmt=n=>{
   if(typeof n==='string') return n;
@@ -3707,6 +3791,7 @@ async function loadStats(){
     renderNavSubs();
     badgeTickerState.status=s;
     scheduleProjectFocusFetch();
+    loadAiPower();
   }catch(e){
     const msg=esc(e.message||'请求失败');
     $('#sidebarStatsSummary').textContent='无法连接';
@@ -6469,6 +6554,7 @@ $('#bootRetryBtn')?.addEventListener('click',()=>location.reload());
 tlInitSort();
 ensureBootOnline().then(ok=>{
   if(!ok) return;
+  loadAiPower();
   loadStats();loadProjects();loadAskModels();loadResumePanel();
   graphBindZoom($('#graphSvg'));
   graphBindZoom($('#relGraphSvg'));

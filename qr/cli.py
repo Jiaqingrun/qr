@@ -1303,6 +1303,39 @@ def track_once():
     console.print(s)
 
 
+@app.command()
+def power(
+    action: str = typer.Argument(
+        "status",
+        help="status / on / off / toggle",
+    ),
+):
+    """AI 服务开关：off 停 Ollama 并暂停屏幕采样；on 恢复。"""
+    from . import power_mode
+
+    act = action.strip().lower()
+    if act in ("status", "st"):
+        result = power_mode.status()
+    elif act in ("on", "full", "enable"):
+        result = power_mode.set_enabled(True)
+    elif act in ("off", "lite", "disable"):
+        result = power_mode.set_enabled(False)
+    elif act in ("toggle", "t"):
+        result = power_mode.toggle()
+    else:
+        console.print(f"[red]✗[/] 未知操作: {action}（可用 status / on / off / toggle）")
+        raise typer.Exit(1)
+
+    on = result.get("ai_enabled")
+    console.print(
+        f"[green]✓[/] {result.get('message', '')} · {result.get('hint', '')}"
+        if on
+        else f"[yellow]![/] {result.get('message', '')} · {result.get('hint', '')}"
+    )
+    if result.get("ollama_models_loaded"):
+        console.print(f"[dim]Ollama 已加载模型: {result['ollama_models_loaded']}[/]")
+
+
 def usage_cmd(period: str = typer.Option("day", "--period", help="day/week/month")):
     """查看应用使用统计（时长/占比/频率）。"""
     db.init_db()
