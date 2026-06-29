@@ -109,6 +109,35 @@ class TestWebApi(unittest.TestCase):
         self.assertEqual(r.status_code, 503)
         self.assertIn("AI 服务已关闭", r.json()["error"])
 
+    def test_api_console_events(self):
+        with mock.patch(
+            "qr.web.console_log.tail",
+            return_value=[{"ts": 1, "source": "web", "kind": "stdout", "text": "hi"}],
+        ):
+            r = self.client.get("/api/console/events?limit=10")
+        self.assertEqual(r.status_code, 200)
+        data = r.json()
+        self.assertEqual(len(data["events"]), 1)
+        self.assertEqual(data["events"][0]["text"], "hi")
+
+    def test_api_console_jobs(self):
+        with mock.patch(
+            "qr.web.console_log.active_jobs",
+            return_value=[{"job_id": "x", "label": "索引", "source": "web"}],
+        ):
+            r = self.client.get("/api/console/jobs")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["jobs"][0]["job_id"], "x")
+
+    def test_api_console_agents(self):
+        with mock.patch(
+            "qr.web.console_log.agent_log_files",
+            return_value=[{"label": "com.qr.web", "name": "web", "title": "Web 服务"}],
+        ):
+            r = self.client.get("/api/console/agents")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["agents"][0]["name"], "web")
+
     def test_sync_git_scan_roots(self):
         with tempfile.TemporaryDirectory() as td:
             cfg_path = Path(td) / "config.json"

@@ -39,6 +39,52 @@ app = typer.Typer(no_args_is_help=True, add_completion=False,
                   help="QR本地个人行为知识库与治理系统（离线，基于 ollama）")
 console = Console()
 
+
+class _ConsoleTee:
+    """镜像 stdout/stderr 到 console_log，供 Web 终端标签页展示。"""
+
+    def __init__(self, stream, kind: str, job_id: str):
+        self._stream = stream
+        self._kind = kind
+        self._job_id = job_id
+
+    def write(self, data: str) -> int:
+        if not data:
+            return 0
+        self._stream.write(data)
+        if hasattr(self._stream, "flush"):
+            self._stream.flush()
+        from . import console_log
+
+        text = console_log.strip_ansi(data).rstrip("\n")
+        if text:
+            console_log.emit(
+                source="cli",
+                kind=self._kind,
+                job_id=self._job_id,
+                text=text,
+            )
+        return len(data)
+
+    def flush(self) -> None:
+        if hasattr(self._stream, "flush"):
+            self._stream.flush()
+
+    def fileno(self) -> int:
+        return self._stream.fileno()
+
+    def isatty(self) -> bool:
+        fn = getattr(self._stream, "isatty", None)
+        return fn() if callable(fn) else False
+
+    @property
+    def encoding(self):
+        return getattr(self._stream, "encoding", "utf-8")
+
+    @property
+    def errors(self):
+        return getattr(self._stream, "errors", "strict")
+
 ALL_SOURCES = ["shell", "git", "files", "cursor", "notes"]
 
 shell_app = typer.Typer(help="Shell 历史采集配置")
@@ -2768,14 +2814,46 @@ def eval_rag_only(
 
 def main():
     argv = sys.argv[1:]
+    skip_mirror = not argv or argv[0] in ("--help", "-h", "completion")
+    job_id = ""
+    orig_out = orig_err = None
+    if not skip_mirror:
+        from . import console_log, ops_timeline
+
+        job_id = console_log.new_job_id("cli")
+        label = ops_timeline.cli_label(argv)
+        detail = " ".join(argv)[:500]
+        console_log.job_start(source="cli", label=label, job_id=job_id, text=detail)
+        orig_out, orig_err = sys.stdout, sys.stderr
+        sys.stdout = _ConsoleTee(orig_out, "stdout", job_id)  # type: ignore[assignment]
+        sys.stderr = _ConsoleTee(orig_err, "stderr", job_id)  # type: ignore[assignment]
+        console.file = sys.stdout
+    exit_code = 0
     try:
         app()
     except SystemExit as exc:
-        if exc.code in (0, None) and argv:
+        exit_code = exc.code if exc.code is not None else 0
+        if exit_code in (0, None) and argv:
             from . import ops_timeline
 
             ops_timeline.log_cli(argv)
         raise
+    finally:
+        if not skip_mirror and job_id:
+            from . import console_log, ops_timeline
+
+            if orig_out is not None:
+                sys.stdout = orig_out
+                console.file = orig_out
+            if orig_err is not None:
+                sys.stderr = orig_err
+            label = ops_timeline.cli_label(argv)
+            console_log.job_done(
+                job_id,
+                source="cli",
+                label=label,
+                error=bool(exit_code),
+            )
 
 
 if __name__ == "__main__":

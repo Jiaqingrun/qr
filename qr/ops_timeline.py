@@ -338,15 +338,24 @@ _CLI_LABELS: dict[str, str] = {
 }
 
 
+def cli_label(argv: list[str]) -> str:
+    if not argv:
+        return "qr"
+    cmd = argv[0]
+    sub = argv[1] if len(argv) > 1 and not argv[1].startswith("-") else ""
+    label = _CLI_LABELS.get(cmd, cmd)
+    if sub:
+        label = f"{label} · {sub}"
+    return label
+
+
 def log_cli(argv: list[str]) -> None:
     if not argv or argv[0] in ("--help", "-h", "completion"):
         return
     cmd = argv[0]
     sub = argv[1] if len(argv) > 1 and not argv[1].startswith("-") else ""
     action = f"cli:{cmd}" + (f".{sub}" if sub else "")
-    label = _CLI_LABELS.get(cmd, cmd)
-    if sub:
-        label = f"{label} · {sub}"
+    label = cli_label(argv)
     detail = " ".join(argv)[:500]
     log_safe(
         action=action,
