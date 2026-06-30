@@ -28,13 +28,13 @@ class TestActivityLog(unittest.TestCase):
         with mock.patch("qr.collectors.notes.db.now", return_value=1_700_000_000):
             with mock.patch(
                 "qr.workspace.canonical_project_id",
-                return_value="dev/scribe",
+                return_value="experiments/idea",
             ):
                 notes.add_note(
                     conn,
-                    "今天在 scribe 写了 2h 章节草稿",
+                    "今天在 idea 做了 2h 原型",
                     kind="activity",
-                    project="dev/scribe",
+                    project="experiments/idea",
                 )
         row = conn.execute(
             "SELECT uid, title, content, meta, project FROM events WHERE source='note'",
@@ -44,7 +44,7 @@ class TestActivityLog(unittest.TestCase):
         self.assertTrue(row["content"].startswith("[活动]"))
         meta = json.loads(row["meta"])
         self.assertEqual(meta["kind"], "activity")
-        self.assertEqual(row["project"], "dev/scribe")
+        self.assertEqual(row["project"], "experiments/idea")
 
     def test_add_note_activity_keeps_existing_prefix(self):
         conn = _conn()
@@ -69,9 +69,9 @@ class TestActivityLog(unittest.TestCase):
                 "note:activity:abc",
                 now,
                 "note",
-                "dev/scribe",
-                "[活动] 写稿 2h",
-                "[活动] 写稿 2h",
+                "experiments/idea",
+                "[活动] 原型 2h",
+                "[活动] 原型 2h",
                 json.dumps({"kind": "activity"}),
             ),
         )
@@ -86,7 +86,7 @@ class TestActivityLog(unittest.TestCase):
                     ):
                         with mock.patch("qr.project_panel.facts.list_facts", return_value=[]):
                             with mock.patch("qr.project_panel.query.search", return_value=[]):
-                                data = project_panel.panel("dev/scribe", days=30)
+                                data = project_panel.panel("experiments/idea", days=30)
         self.assertEqual(data["activity_notes"], 1)
 
 

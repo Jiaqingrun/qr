@@ -9,6 +9,19 @@ from typing import Any
 from . import compliance, config, db, eval_suite, workspace
 
 
+def _with_priority(alert: dict[str, Any]) -> dict[str, Any]:
+    """P0 阻断 · P1 待办 · P2 信息。"""
+    level = alert.get("level", "info")
+    atype = alert.get("type", "")
+    if level == "error" or atype == "backup":
+        alert = {**alert, "priority": "p0"}
+    elif level == "warn" or atype in ("standards", "rag"):
+        alert = {**alert, "priority": "p1"}
+    else:
+        alert = {**alert, "priority": "p2"}
+    return alert
+
+
 def _projects_last_activity(conn: sqlite3.Connection) -> dict[str, int]:
     rows = conn.execute(
         "SELECT project, MAX(ts) t FROM events WHERE project IS NOT NULL GROUP BY project"
@@ -36,19 +49,19 @@ def check_dormant_projects(conn: sqlite3.Connection) -> list[dict[str, Any]]:
             last = activity.get(pid, 0)
             if last and last < threshold:
                 idle = (db.now() - last) // 86400
-                alerts.append({
+                alerts.append(_with_priority({
                     "type": "dormant",
                     "level": "info",
                     "project": pid,
                     "message": f"项目 {pid} 已 {idle} 天无活动，可考虑归档",
-                })
+                }))
             elif not last:
-                alerts.append({
+                alerts.append(_with_priority({
                     "type": "dormant",
                     "level": "info",
                     "project": pid,
                     "message": f"项目 {pid} 时间线无记录",
-                })
+                }))
     return alerts
 
 
@@ -69,23 +82,24 @@ def check_standards_deviation(conn: sqlite3.Connection) -> list[dict[str, Any]]:
                 if workspace.is_under_workspace(child, cfg):
                     continue
                 if (child / ".git").exists() or (child / "package.json").exists():
-                    alerts.append({
+                    alerts.append(_with_priority({
                         "type": "standards",
                         "level": "warn",
                         "path": str(child),
                         "message": f"散落项目 {child.name} 不在 ~/QR，建议 qr workspace migrate",
-                    })
+                        "action": "settings_import",
+                    }))
         except OSError:
             continue
     bad = [r for r in compliance.scan_index_roots() if not r["ok"]]
     for r in bad[:5]:
         name = Path(r["path"]).name
-        alerts.append({
+        alerts.append(_with_priority({
             "type": "compliance",
             "level": "info",
             "project": name,
             "message": f"合规待改进: {'; '.join(r['issues'][:2])}",
-        })
+        }))
     return alerts
 
 
@@ -132,11 +146,12 @@ def check_rag_quality(conn: sqlite3.Connection | None = None) -> list[dict[str, 
             try:
                 prev = float(prev_s)
                 if prev - rate >= drop_pct:
-                    alerts.append({
+                    alerts.append(_with_priority({
                         "type": "rag",
                         "level": "warn",
                         "message": f"RAG 命中率从 {prev:.0f}% 降至 {rate:.0f}%",
-                    })
+                        "action": "settings_quality",
+                    }))
             except ValueError:
                 pass
     except Exception:

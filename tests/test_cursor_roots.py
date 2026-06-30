@@ -83,7 +83,7 @@ class TestCursorRoots(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "QR"
-            proj = root / "dev" / "scribe"
+            proj = root / "dev" / "syspeek"
             proj.mkdir(parents=True)
             cfg = {"workspace_root": str(root), "project_categories": ["dev"]}
             slug = workspace._cursor_dir_slug(proj)

@@ -33,7 +33,8 @@ SMOKE_GETS: list[tuple[str, tuple[str, ...]]] = [
     ("/api/tracker/status", ()),
     ("/api/ops/overview", ("doctor",)),
     ("/api/project/focus", ()),
-    ("/api/digest?days=1", ("content",)),
+    ("/api/today", ()),
+    ("/api/ui-tier", ("ui_tier", "nav_map")),
 ]
 
 

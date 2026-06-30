@@ -33,6 +33,41 @@
 
 | 标签 | 结构 |
 |------|------|
+| **今日** | `page-ops`（快捷按钮）+ `page-body--grid`（接着干 / 待处理 / 摘要） |
+| 问 | `split-ops`（模式 Seg + 高级折叠）+ `split-shell`（历史 \| 对话）；出处/符号模式用 `#askCiteOut` |
+| 总结 | `split-ops` + `split-shell`（列表 \| 正文 + 规范对照） |
+| 项目 / 洞察 | `page-ops` + `page-body--grid` → `insight-grid` |
+| 关系 | `page-ops` + `rel-shell`（左编辑 \| 右图谱 + 详情/组合 dock，纵向 flex 填满，禁止 `max-height: calc(100vh - …)` 截断） |
+| 提示库 | `page-ops` + `pg-shell`（收件箱 + 已保存引导语；点开引导语弹窗左问话右 Cursor 回复） |
+| 设 | `page-ops`（常用 / 高级折叠）+ `page-body--grid`；组内 Tab：系统 / 规范 / 验收 |
+| 时间线 / 规范正文 | `page-ops` + `page-body` → 卡片 + 分页 |
+
+### 组导航（`daily` / `starter` 档）
+
+- 侧栏 **记录** → 页内 `.page-tabs`：`时间线 | 总结 | 应用`
+- 侧栏 **项目** → `概览 | 关系`（`daily` 档隐藏关系）
+- 侧栏 **设** → `系统 | 规范 | 验收`
+- 顶栏 **本周主攻** 下拉全局生效
+
+### 体验档位
+
+- `full`：13 项侧栏（向后兼容，config 无 `ui_tier` 时默认）
+- `daily`：6 项 + 更多；landing 默认 **今日**
+- 配置：`GET/POST /api/ui-tier` · `~/.qr/config.json` → `ui_tier` / `ui_onboarding_done` / `ui_landing_view` / `ui_profile`
+
+### 侧栏档位条（AI 开关上方）
+
+| 档位 | 显示 |
+|------|------|
+| `full` | 蓝色虚线按钮 **切换到日常界面** |
+| `daily` / `starter` | 绿色条 **当前：日常档** · **设 → 验收** · **完整档** |
+
+完整档运维页顶部另有 **界面体验** 卡片（入门 / 日常 / 完整 + 设计者验收）。
+
+## 各标签布局（完整档对照）
+
+| 标签 | 结构 |
+|------|------|
 | 问答 | `split-ops` + `split-shell`（历史 \| 对话） |
 | 总结 | `split-ops` + `split-shell`（列表 \| 正文 + 规范对照） |
 | 项目 / 洞察 | `page-ops` + `page-body--grid` → `insight-grid` |

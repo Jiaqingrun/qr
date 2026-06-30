@@ -216,13 +216,13 @@
 
   function initInsightTabs() {
     document.querySelectorAll('.insight-nav-btn').forEach((btn) => {
-      btn.addEventListener('click', () => switchInsightTab(btn.dataset.insightTab || 'bench'));
+      btn.addEventListener('click', () => switchInsightTab(btn.dataset.insightTab || 'graph'));
     });
     const tabForBtn = {
-      digestBtn: 'digest',
-      digestNotifyBtn: 'digest',
-      factsInsightBtn: 'digest',
-      exportBtn: 'digest',
+      digestBtn: 'quality',
+      digestNotifyBtn: 'quality',
+      factsInsightBtn: 'quality',
+      exportBtn: 'quality',
       graphBtn: 'graph',
       complianceBtn: 'quality',
       evalRunBtn: 'quality',
@@ -420,6 +420,7 @@
 
   document.querySelector('#projectChangelogBtn')?.addEventListener('click', loadProjectChangelog);
   document.querySelector('#todayRefreshBtn')?.addEventListener('click', loadTodayPanel);
+  document.querySelector('#insightRefreshBtn')?.addEventListener('click', loadTodayPanel);
   document.querySelector('#insightAlertsBtn')?.addEventListener('click', loadInsightAlerts);
   initInsightTabs();
 
@@ -431,14 +432,17 @@
     window.switchView = function (v) {
       origSwitch(v);
       if (v === 'insight') {
-        loadDailyPlan();
-        loadFocusProjectSelect();
-        loadTodayPanel();
-        loadInsightAlerts();
+        switchInsightTab('graph');
+        document.querySelector('#graphBtn')?.click();
+      }
+      if (v === 'acceptance') {
         loadDesignerMetrics();
       }
     };
   }
+
+  window.runShipDoctor = runShipDoctor;
+  window.loadDesignerMetrics = loadDesignerMetrics;
 
   window.loadTodayPanel = loadTodayPanel;
   window.loadDailyPlan = loadDailyPlan;

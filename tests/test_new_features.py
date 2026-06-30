@@ -194,7 +194,7 @@ class TestFactsSync(unittest.TestCase):
         keys = {(r["key"], r.get("project")) for r in rows}
         self.assertIn(("mvp_focus", "dev/sports/project-sports"), keys)
         self.assertIn(("retrieval_upgrade_policy", "QR"), keys)
-        self.assertIn(("cursor_workspace", "dev/scribe"), keys)
+        self.assertIn(("conda_env", "dev/sports/project-sports"), keys)
 
 
 class TestFactsRetrieval(unittest.TestCase):
@@ -354,6 +354,53 @@ class TestWebNewApi(unittest.TestCase):
             r = client.get("/api/today")
         self.assertEqual(r.status_code, 200)
 
+    def test_ui_tier_api(self):
+        from fastapi.testclient import TestClient
+        from qr import config
+        from qr.web import app
+
+        client = TestClient(app)
+        r = client.get("/api/ui-tier")
+        self.assertEqual(r.status_code, 200)
+        data = r.json()
+        self.assertIn("ui_tier", data)
+        self.assertIn("nav_map", data)
+        self.assertIn(data["ui_tier"], ("starter", "daily", "full"))
+
+        with mock.patch("qr.config.save_ui_settings", return_value={
+            "ui_tier": "daily",
+            "ui_onboarding_done": True,
+            "ui_landing_view": "today",
+            "ui_profile": "standard",
+            "nav_map": config.nav_map_for_tier("daily"),
+        }) as save_mock:
+            r2 = client.post("/api/ui-tier", json={"tier": "daily", "onboarding_done": True})
+        self.assertEqual(r2.status_code, 200)
+        save_mock.assert_called_once()
+
+    def test_ui_event_api(self):
+        from fastapi.testclient import TestClient
+        from qr.web import app
+
+        client = TestClient(app)
+        with mock.patch("qr.ui_events.log") as log_mock:
+            r = client.post("/api/ui-event", json={"event": "view_switch", "view": "today"})
+        self.assertEqual(r.status_code, 200)
+        log_mock.assert_called_once()
+
+    def test_ops_sync_api(self):
+        from fastapi.testclient import TestClient
+        from qr.web import app
+
+        client = TestClient(app)
+        with mock.patch("qr.web.console_log.job_start", return_value="job-1"), mock.patch(
+            "qr.web.BackgroundTasks.add_task",
+        ) as add_task:
+            r = client.post("/api/ops/sync")
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(r.json().get("ok"))
+        add_task.assert_called_once()
+
     def test_project_brief_api(self):
         from fastapi.testclient import TestClient
         from qr.web import app
@@ -501,6 +548,54 @@ class TestAiAssess(unittest.TestCase):
         )
         self.assertIn("AI 使用水平", md)
         self.assertIn("dev/qr", md)
+
+
+class TestUiSettings(unittest.TestCase):
+    def test_ui_settings_default_full_without_key(self):
+        from qr import config
+
+        with tempfile.TemporaryDirectory() as td:
+            home = Path(td)
+            with mock.patch.object(config, "QR_HOME", home), mock.patch.object(
+                config, "CONFIG_PATH", home / "config.json",
+            ):
+                home.mkdir(parents=True, exist_ok=True)
+                ui = config.ui_settings()
+                self.assertEqual(ui["ui_tier"], "full")
+                self.assertFalse(ui["ui_onboarding_done"])
+
+    def test_save_ui_settings_applies_profile(self):
+        from qr import config
+
+        with tempfile.TemporaryDirectory() as td:
+            home = Path(td)
+            cfg_path = home / "config.json"
+            with mock.patch.object(config, "QR_HOME", home), mock.patch.object(
+                config, "CONFIG_PATH", cfg_path,
+            ):
+                home.mkdir(parents=True, exist_ok=True)
+                out = config.save_ui_settings(tier="starter")
+                self.assertEqual(out["ui_tier"], "starter")
+                self.assertEqual(out["ui_profile"], "minimal")
+                saved = json.loads(cfg_path.read_text())
+                self.assertFalse(saved.get("retrieval_relation_expand", True))
+
+
+class TestUiEvents(unittest.TestCase):
+    def test_log_ui_event(self):
+        from qr import ui_events
+
+        with tempfile.TemporaryDirectory() as td:
+            home = Path(td)
+            with mock.patch.object(ui_events.config, "QR_HOME", home), mock.patch.object(
+                ui_events.config, "LOGS_DIR", home / "logs",
+            ), mock.patch.object(ui_events.db, "now", return_value=1234567890):
+                ui_events.log("view_switch", view="today")
+                path = home / "logs" / "ui_events.jsonl"
+                self.assertTrue(path.is_file())
+                row = json.loads(path.read_text().strip())
+                self.assertEqual(row["event"], "view_switch")
+                self.assertEqual(row["view"], "today")
 
 
 if __name__ == "__main__":

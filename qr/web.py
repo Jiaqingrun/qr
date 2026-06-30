@@ -372,6 +372,7 @@ def status():
         "health_ok_items": dash["health_ok_items"],
         "default_ask_model": models.default_ask_model(),
         "features": {"prompt_guides": True},
+        **config.ui_settings(),
     }
 
 
@@ -2544,6 +2545,49 @@ class FocusProjectBody(BaseModel):
     project: str = ""
 
 
+class UiTierBody(BaseModel):
+    tier: str | None = None
+    onboarding_done: bool | None = None
+    landing_view: str | None = None
+    profile: str | None = None
+
+
+class UiEventBody(BaseModel):
+    event: str
+    view: str = ""
+    detail: str = ""
+
+
+@app.post("/api/ui-event")
+def api_ui_event(body: UiEventBody):
+    from . import ui_events
+
+    if not (body.event or "").strip():
+        return JSONResponse({"error": "event 不能为空"}, status_code=400)
+    ui_events.log(body.event.strip(), view=(body.view or "").strip(), detail=(body.detail or "").strip())
+    return {"ok": True}
+
+
+@app.get("/api/ui-tier")
+def api_ui_tier_get():
+    ui = config.ui_settings()
+    return {**ui, "nav_map": config.nav_map_for_tier(ui["ui_tier"])}
+
+
+@app.post("/api/ui-tier")
+def api_ui_tier_set(body: UiTierBody):
+    try:
+        out = config.save_ui_settings(
+            tier=body.tier,
+            onboarding_done=body.onboarding_done,
+            landing_view=body.landing_view,
+            profile=body.profile,
+        )
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    return out
+
+
 @app.get("/api/focus-project")
 def api_focus_project_get():
     cfg = config.load_config()
@@ -2653,6 +2697,34 @@ def _ops_install_web_agents_background() -> None:
         schedule_service.install_web_agents()
     except Exception:
         logging.exception("后台安装 Web launchd 任务失败")
+
+
+@app.post("/api/ops/sync")
+def api_ops_sync(background_tasks: BackgroundTasks):
+    """一键同步：采集 + 增量索引（等同 qr update 核心步骤）。"""
+    from . import collectors, indexer
+
+    db.init_db()
+    jid = console_log.job_start(source="web", label="一键同步")
+    sources = ["shell", "git", "files", "cursor", "notes"]
+
+    def _run_sync() -> None:
+        try:
+            with db.session() as conn:
+                res = collectors.run(conn, sources)
+            ev = {k: v for k, v in res.items() if k not in ("index_files", "index_chunks")}
+            parts = [f"{k}={v}" for k, v in ev.items()]
+            if res.get("index_files") is not None:
+                parts.append(f"索引 文档 {res.get('index_files', 0)} 块 {res.get('index_chunks', 0)}")
+            else:
+                stats = indexer.index()
+                parts.append(f"索引 文档 {stats['files']} 块 {stats['chunks']}")
+            console_log.job_done(jid, source="web", label="一键同步", text=" · ".join(parts) or "完成")
+        except Exception as e:
+            console_log.job_done(jid, source="web", label="一键同步", text=str(e), error=True)
+
+    background_tasks.add_task(_run_sync)
+    return {"ok": True, "job_id": jid}
 
 
 @app.post("/api/ops/optimize")

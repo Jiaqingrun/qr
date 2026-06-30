@@ -39,6 +39,33 @@ app = typer.Typer(no_args_is_help=True, add_completion=False,
                   help="QR本地个人行为知识库与治理系统（离线，基于 ollama）")
 console = Console()
 
+help_app = typer.Typer(help="按主题查看常用命令")
+app.add_typer(help_app, name="help")
+
+
+@help_app.command("topics")
+def help_topics():
+    """Web/CLI 分组速查（简化导航对照）。"""
+    console.print("[bold]五常（日常）[/bold]")
+    for line in (
+        "  qr web          打开 Web 控制台（http://127.0.0.1:8765）",
+        "  qr ask \"…\"      向自己的代码提问",
+        "  qr log \"…\"      记决策 / 进展",
+        "  qr update       采集 + 索引",
+        "  qr doctor       系统自检",
+    ):
+        console.print(line)
+    console.print("\n[bold]主题[/bold]")
+    groups = (
+        ("问 / 检索", "ask · query · symbol · eval rag"),
+        ("记录", "log · summary · timeline · prompts"),
+        ("项目 / 工作区", "project · workspace · index"),
+        ("设 / 运维", "web --restart · backup · schedule · standards"),
+    )
+    for title, cmds in groups:
+        console.print(f"  [cyan]{title}[/cyan]  {cmds}")
+    console.print("\n[dim]Web 日常档：侧栏 今日 / 问 / 记录 / 项目 / 提示库 / 设 · Cmd+K 命令面板[/dim]")
+
 
 class _ConsoleTee:
     """镜像 stdout/stderr 到 console_log，供 Web 终端标签页展示。"""
@@ -265,7 +292,7 @@ def doctor(
         False, "--fix", help="全量自检并清理：无效索引/向量块、幽灵项目、沿革噪声、同步稳定事实",
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="仅统计将清理项，不写入"),
-    json_out: bool = typer.Option(False, "--json", help="输出 JSON（供 TermDesk 等工具解析）"),
+    json_out: bool = typer.Option(False, "--json", help="输出 JSON（供脚本/工具解析）"),
 ):
     """检查各子系统边界状态；--fix 时自动清理可修复项。"""
     from . import maintenance
@@ -817,16 +844,16 @@ def ask(text: str = typer.Argument(..., help="你的问题"),
 def log(
     text: str = typer.Argument(..., help="笔记内容"),
     tags: str = typer.Option(None, "--tags", "-t"),
-    project: str = typer.Option("", "-p", "--project", help="关联项目，如 dev/scribe"),
+    project: str = typer.Option("", "-p", "--project", help="关联项目，如 experiments/idea"),
     kind: str = typer.Option(
         "note",
         "--type",
-        help="note | decision | activity（非 Cursor 投入，如「今天在 scribe 写了 2h」）",
+        help="note | decision | activity（非 Cursor 投入，如「今天在 idea 做了 2h 原型」）",
     ),
 ):
     """随手记录一条笔记/日志。
 
-    活动记录示例：qr log \"今天在 dev/scribe 写了 2h 章节草稿\" --type activity -p dev/scribe
+    活动记录示例：qr log \"今天在 experiments/idea 做了 2h 原型\" --type activity -p experiments/idea
     """
     db.init_db()
     if kind == "decision" and not text.strip().startswith("#"):

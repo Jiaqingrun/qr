@@ -167,4 +167,34 @@
   g.hitCard = hitCard;
   g.askRefsHtml = askRefsHtml;
   g.QUERY_HIT_COLORS = QUERY_HIT_COLORS;
+
+  function renderEmptyState(el, opts) {
+    if (!el) return;
+    opts = opts || {};
+    const icon = opts.icon || '📭';
+    const title = opts.title || '暂无内容';
+    const action = opts.action || '';
+    const href = opts.actionHref || '#';
+    const secondary = opts.secondary || '';
+    el.innerHTML =
+      `<div class="empty-state"><div class="empty-state-icon">${icon}</div>` +
+      `<div class="empty-state-title">${title}</div>` +
+      (action
+        ? `<button type="button" class="btn btn-primary btn-sm empty-state-btn" data-empty-action="${esc(href)}">${esc(action)}</button>`
+        : '') +
+      (secondary ? `<div class="empty-state-secondary hint">${secondary}</div>` : '') +
+      '</div>';
+    el.querySelector('.empty-state-btn')?.addEventListener('click', () => {
+      const h = el.querySelector('.empty-state-btn')?.dataset.emptyAction;
+      if (h && h.startsWith('view:')) {
+        const v = h.slice(5);
+        if (typeof g.switchView === 'function') g.switchView(v);
+      } else if (h === 'ops-sync' && typeof g.api === 'function') {
+        g.api('/api/ops/sync', { method: 'POST' }).then(() => {
+          if (typeof g.switchView === 'function') g.switchView('ops');
+        });
+      }
+    });
+  }
+  g.renderEmptyState = renderEmptyState;
 })(window);

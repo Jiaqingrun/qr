@@ -147,6 +147,152 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "compliance_ship_days": 14,
 }
 
+UI_TIER_VALUES = frozenset({"starter", "daily", "full"})
+UI_LANDING_VALUES = frozenset({"today", "ask"})
+UI_PROFILE_VALUES = frozenset({"minimal", "standard", "full"})
+
+# 与 ui_tier 联动的后台能力预设（写入 config.json，可手改）
+UI_PROFILE_PRESETS: dict[str, dict[str, Any]] = {
+    "minimal": {
+        "retrieval_relation_expand": False,
+        "standards_auto_revise": False,
+        "standards_auto_on_weekly": False,
+    },
+    "standard": {
+        "retrieval_relation_expand": True,
+        "standards_auto_revise": True,
+        "standards_auto_on_weekly": True,
+    },
+    "full": {
+        "retrieval_relation_expand": True,
+        "standards_auto_revise": True,
+        "standards_auto_on_weekly": True,
+        "index_health_auto": True,
+    },
+}
+
+
+def default_ui_profile_for_tier(tier: str) -> str:
+    if tier == "starter":
+        return "minimal"
+    if tier == "daily":
+        return "standard"
+    return "full"
+
+
+def apply_ui_profile(cfg: dict[str, Any], profile: str) -> None:
+    if profile not in UI_PROFILE_VALUES:
+        profile = "standard"
+    preset = UI_PROFILE_PRESETS.get(profile, {})
+    for key, val in preset.items():
+        cfg[key] = val
+    cfg["ui_profile"] = profile
+
+
+def ui_profile_settings(cfg: dict[str, Any] | None = None) -> str:
+    _ = cfg
+    raw = _raw_config_file()
+    prof = raw.get("ui_profile")
+    if prof in UI_PROFILE_VALUES:
+        return str(prof)
+    tier = raw.get("ui_tier", "full")
+    if tier not in UI_TIER_VALUES:
+        tier = "full"
+    return default_ui_profile_for_tier(tier)
+
+
+def _raw_config_file() -> dict[str, Any]:
+    if not CONFIG_PATH.exists():
+        return {}
+    try:
+        return json.loads(CONFIG_PATH.read_text())
+    except json.JSONDecodeError:
+        return {}
+
+
+def ui_settings(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Web UI 档位；config.json 无 ui_tier 时视为 full（向后兼容）。"""
+    _ = cfg  # merged cfg 无法区分缺省键，以文件为准
+    raw = _raw_config_file()
+    tier = raw.get("ui_tier", "full")
+    if tier not in UI_TIER_VALUES:
+        tier = "full"
+    onboarding = bool(raw.get("ui_onboarding_done", False))
+    default_landing = "today" if tier in ("starter", "daily") else "ask"
+    landing = raw.get("ui_landing_view", default_landing)
+    if landing not in UI_LANDING_VALUES:
+        landing = default_landing
+    return {
+        "ui_tier": tier,
+        "ui_onboarding_done": onboarding,
+        "ui_landing_view": landing,
+        "ui_profile": ui_profile_settings(),
+    }
+
+
+def nav_map_for_tier(tier: str) -> dict[str, Any]:
+    """侧栏结构描述，供 Web 渲染。"""
+    if tier not in UI_TIER_VALUES:
+        tier = "full"
+    if tier == "full":
+        return {
+            "mode": "full",
+            "groups": [
+                {"label": "核心", "items": ["ask", "project", "relations", "query"]},
+                {"label": "记录", "items": ["usage", "summary", "timeline", "prompts", "console"]},
+                {"label": "治理", "items": ["standards", "stdlog", "insight", "ops"]},
+            ],
+            "more": [],
+            "landing": ui_settings().get("ui_landing_view", "ask"),
+        }
+    primary = ["today", "ask", "record", "project", "prompts", "settings"]
+    if tier == "starter":
+        primary = ["today", "ask", "record", "prompts"]
+    more = ["stdlog", "insight", "console", "query"]
+    if tier == "daily":
+        more = ["stdlog", "insight", "console", "query"]
+    return {
+        "mode": tier,
+        "primary": primary,
+        "more": more,
+        "landing": ui_settings().get("ui_landing_view", "today"),
+        "groups": {
+            "record": ["timeline", "summary", "usage"],
+            "project": ["project", "relations"],
+            "settings": ["ops", "standards", "acceptance"],
+        },
+    }
+
+
+def save_ui_settings(
+    *,
+    tier: str | None = None,
+    onboarding_done: bool | None = None,
+    landing_view: str | None = None,
+    profile: str | None = None,
+) -> dict[str, Any]:
+    cfg = load_config()
+    if tier is not None:
+        if tier not in UI_TIER_VALUES:
+            raise ValueError(f"ui_tier 须为 {sorted(UI_TIER_VALUES)} 之一")
+        cfg["ui_tier"] = tier
+        if profile is None:
+            profile = default_ui_profile_for_tier(tier)
+    if onboarding_done is not None:
+        cfg["ui_onboarding_done"] = bool(onboarding_done)
+    if landing_view is not None:
+        if landing_view not in UI_LANDING_VALUES:
+            raise ValueError(f"ui_landing_view 须为 {sorted(UI_LANDING_VALUES)} 之一")
+        cfg["ui_landing_view"] = landing_view
+    if profile is not None:
+        if profile not in UI_PROFILE_VALUES:
+            raise ValueError(f"ui_profile 须为 {sorted(UI_PROFILE_VALUES)} 之一")
+        apply_ui_profile(cfg, profile)
+    elif tier is not None:
+        apply_ui_profile(cfg, default_ui_profile_for_tier(tier))
+    save_config(cfg)
+    return {**ui_settings(), "nav_map": nav_map_for_tier(ui_settings()["ui_tier"])}
+
 
 def migrate_legacy_home() -> list[str]:
     """将 ~/.kb 数据迁移到 ~/.qr（仅迁移缺失项）。"""

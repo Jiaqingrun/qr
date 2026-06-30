@@ -68,7 +68,7 @@ qr query "database locked" -k 8                   # 只检索、不生成
 **推荐操作**  
 ```bash
 qr log "选用 SQLite 因单机部署" --type decision
-qr log "今天在 dev/scribe 写了 2h 章节草稿" --type activity -p dev/scribe
+qr log "今天在 experiments/idea 做了 2h 原型" --type activity -p experiments/idea
 ```
 
 **细节**  
@@ -291,3 +291,24 @@ qr digest-notify              # 洞察 + 简报摘要 + macOS 通知
 4. `qr rules --user` 粘贴规范（可选）  
 
 有问题先：`qr doctor` · `qr status`
+
+---
+
+## 12. Web 五环导航（2026-07）
+
+**日常档**（`ui_tier: daily`）侧栏：
+
+| 导航 | 用途 |
+|------|------|
+| 今天 | 接着干、待处理告警、摘要；默认首页 |
+| 问答 | 回答 / 出处 / 符号 三模式 |
+| 足迹 | 时间线 · 总结 · 应用 |
+| 项目 | 单项目面板（关系 Tab 在完整版） |
+| 引导语 | Cursor 问话采集与合并 |
+| 设置 | 一键同步、备份、定时任务、规范、验收 |
+
+**完整版**（`ui_tier: full` 或未配置 `ui_tier`）：保留原 13 项侧栏。
+
+切换档位：Web **设置 → 验收** 页，或侧栏 **去验收** · `POST /api/ui-tier`。
+
+快捷键：**Cmd+K**（Ctrl+K）命令面板。

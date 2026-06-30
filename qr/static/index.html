@@ -207,7 +207,9 @@
   .nav-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;box-shadow:0 0 8px currentColor;opacity:.9}
   .sidebar-foot{
     padding:8px 6px 6px;border-top:1px solid var(--border);margin-top:auto;flex-shrink:0;
-    position:relative;z-index:40;isolation:isolate;
+    position:relative;z-index:50;isolation:isolate;
+    background:linear-gradient(180deg,transparent 0%,rgba(10,12,18,.92) 10px);
+    pointer-events:auto;
   }
   .sidebar-power{padding:0 2px 8px;flex-shrink:0}
   .toggle--sidebar{
@@ -1503,6 +1505,124 @@
   .std-pending-sections{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
   .std-pending-sec{font-size:11px;padding:2px 8px;border-radius:999px;background:rgba(255,255,255,.06);color:var(--muted)}
   .std-pending-diff{max-height:280px;overflow:auto;border-radius:8px;border:1px solid var(--border)}
+
+  /* ── UI 简化：今日 / 组 Tab / 档位 ── */
+  .nav-simple[hidden],.nav-full[hidden]{display:none!important}
+  .nav-more{margin-top:4px;border-top:1px solid var(--border);padding-top:6px}
+  .nav-more summary{
+    list-style:none;cursor:pointer;padding:8px 11px;color:var(--muted);font-size:13px;border-radius:var(--r-sm);
+  }
+  .nav-more summary::-webkit-details-marker{display:none}
+  .nav-item.active[data-nav-view="today"]{box-shadow:inset 3px 0 0 var(--amber),var(--shadow-sm)}
+  .nav-item.active[data-nav-view="record"]{box-shadow:inset 3px 0 0 var(--pink),var(--shadow-sm)}
+  .nav-item.active[data-nav-view="settings"]{box-shadow:inset 3px 0 0 var(--blue),var(--shadow-sm)}
+  .nav-item.active[data-v="today"]{box-shadow:inset 3px 0 0 var(--amber),var(--shadow-sm)}
+  .topbar-focus{
+    display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-right:auto;min-width:0;
+  }
+  .topbar-focus label{font-size:11px;color:var(--muted);white-space:nowrap}
+  .topbar-focus .field-select{max-width:160px;font-size:12px}
+  .page-tabs{
+    display:flex;gap:6px;flex-wrap:wrap;padding:0 var(--split-pad) 8px;flex-shrink:0;
+  }
+  .page-tabs[hidden]{display:none!important}
+  .page-tab{
+    font:inherit;font-size:12px;padding:5px 12px;border-radius:999px;border:1px solid var(--border);
+    background:rgba(255,255,255,.03);color:var(--muted);cursor:pointer;
+  }
+  .page-tab.active{background:rgba(110,168,254,.12);border-color:rgba(110,168,254,.35);color:var(--blue);font-weight:600}
+  .mode-seg{display:inline-flex;border:1px solid var(--border);border-radius:999px;overflow:hidden}
+  .mode-seg-btn{
+    font:inherit;font-size:12px;padding:5px 12px;border:none;background:transparent;color:var(--muted);cursor:pointer;
+  }
+  .mode-seg-btn.active{background:rgba(110,168,254,.15);color:var(--blue);font-weight:600}
+  .ask-advanced[hidden]{display:none!important}
+  .ask-cite-out{flex:1;min-height:0;overflow:auto;margin-top:var(--split-gap)}
+  .today-quick{display:flex;flex-wrap:wrap;gap:8px}
+  .today-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:var(--split-gap);flex:1;min-height:0}
+  .today-alert{display:flex;align-items:center;gap:10px;padding:10px 14px;font-size:13px}
+  .today-alert .badge{flex-shrink:0}
+  .today-alert span{flex:1;min-width:0}
+  .sidebar-health-simple{
+    padding:8px 10px;margin-bottom:6px;border-radius:var(--r-sm);border:1px solid var(--border);
+    font-size:12px;color:var(--text2);
+  }
+  .health-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:middle}
+  .health-dot.ok{background:var(--mint);box-shadow:0 0 8px var(--mint)}
+  .health-dot.warn{background:var(--amber);box-shadow:0 0 8px var(--amber)}
+  .empty-state{text-align:center;padding:32px 20px}
+  .empty-state-icon{font-size:36px;margin-bottom:10px;opacity:.5}
+  .empty-state-title{color:var(--muted);font-size:13px;margin-bottom:12px;line-height:1.5}
+  .empty-state-secondary{margin-top:10px;font-size:12px}
+  .ops-tier-primary,.ops-tier-advanced{margin-bottom:var(--split-gap)}
+  .ops-tier-advanced[hidden]{display:none!important}
+  .ops-tier-head{font-size:12px;font-weight:600;color:var(--text2);margin-bottom:8px}
+  .ops-ui-tier-banner{margin-bottom:var(--split-gap);border:1px solid rgba(120,180,255,.22);background:rgba(120,180,255,.04)}
+  .ops-ui-tier-banner .card-head{color:var(--blue)}
+  .sidebar-tier-switch{
+    width:100%;margin:0 2px 8px;padding:7px 10px;border-radius:8px;border:1px dashed rgba(120,180,255,.35);
+    background:rgba(120,180,255,.06);color:var(--blue);font:inherit;font-size:11px;cursor:pointer;text-align:center;
+    display:none;
+  }
+  body:not([data-ui-tier]) .sidebar-tier-switch,
+  body[data-ui-tier="full"] .sidebar-tier-switch{display:block}
+  .sidebar-tier-switch:hover{background:rgba(120,180,255,.12)}
+  .sidebar-tier-daily{
+    display:none;margin:0 2px 8px;padding:7px 10px;border-radius:8px;border:1px solid rgba(120,220,160,.28);
+    background:rgba(120,220,160,.06);font-size:11px;line-height:1.45;color:var(--text2);
+    position:relative;z-index:51;pointer-events:auto;
+  }
+  body[data-ui-tier="daily"] .sidebar-tier-daily,
+  body[data-ui-tier="starter"] .sidebar-tier-daily{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+  .sidebar-tier-label{color:var(--mint);font-weight:600}
+  .sidebar-tier-link{
+    padding:2px 8px;border-radius:6px;border:1px solid rgba(120,180,255,.35);
+    background:rgba(120,180,255,.08);color:var(--blue);font:inherit;font-size:10px;cursor:pointer;
+    pointer-events:auto;position:relative;z-index:2;touch-action:manipulation;
+    appearance:none;-webkit-appearance:none;
+  }
+  .sidebar-tier-link:hover{background:rgba(120,180,255,.14)}
+  .sidebar-tier-link--muted{color:var(--muted);border-color:var(--border);background:transparent}
+  .ops-ui-tier-banner{display:none}
+  body:not([data-ui-tier]) .ops-ui-tier-banner,
+  body[data-ui-tier="full"] .ops-ui-tier-banner{display:block}
+  .cmd-palette{
+    position:fixed;inset:0;z-index:9000;display:flex;align-items:flex-start;justify-content:center;padding:12vh 16px;
+    background:rgba(0,0,0,.55);
+  }
+  .cmd-palette[hidden]{display:none!important}
+  .cmd-palette-card{
+    width:min(520px,100%);background:var(--bg1);border:1px solid var(--border);border-radius:var(--r);
+    box-shadow:var(--shadow-lg);overflow:hidden;
+  }
+  .cmd-palette-input{
+    width:100%;padding:14px 16px;border:none;border-bottom:1px solid var(--border);
+    background:transparent;color:var(--text);font:inherit;font-size:15px;outline:none;
+  }
+  .cmd-palette-list{max-height:320px;overflow:auto;padding:6px}
+  .cmd-item{
+    display:block;width:100%;text-align:left;padding:10px 12px;border:none;background:transparent;
+    color:var(--text2);font:inherit;font-size:13px;border-radius:var(--r-sm);cursor:pointer;
+  }
+  .cmd-item:hover,.cmd-item.active{background:rgba(255,255,255,.06);color:var(--text)}
+  .onboarding-wizard{
+    position:fixed;inset:0;z-index:9500;background:rgba(0,0,0,.65);
+    display:flex;align-items:center;justify-content:center;padding:20px;
+  }
+  .onboarding-wizard[hidden]{display:none!important}
+  .onboarding-card{
+    width:min(440px,100%);background:var(--bg1);border:1px solid var(--border);border-radius:var(--r);
+    padding:24px;box-shadow:var(--shadow-lg);
+  }
+  .onboarding-card h2{margin:0 0 12px;font-size:18px}
+  .ob-dots{display:flex;gap:6px;margin:16px 0}
+  .ob-dot{width:8px;height:8px;border-radius:50%;background:var(--border)}
+  .ob-dot.on{background:var(--blue)}
+  .standards-subtabs{display:flex;gap:6px;margin-bottom:12px}
+  .std-subtab{font:inherit;font-size:12px;padding:4px 10px;border-radius:999px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer}
+  .std-subtab.active{background:rgba(126,224,168,.12);border-color:rgba(126,224,168,.35);color:var(--mint)}
+  .std-panel[hidden]{display:none!important}
+  #view-acceptance .insight-card{margin:0}
 </style>
 </head>
 <body>
@@ -1532,7 +1652,8 @@
         </div>
       </div>
     </div>
-    <nav class="nav" id="nav">
+    <nav class="nav" id="nav" data-mode="full">
+      <div id="navFull" class="nav-full">
       <div class="nav-label">核心</div>
       <button class="nav-item active" data-v="ask"><span class="nav-dot" style="color:var(--blue);background:var(--blue)"></span><span class="nav-title">问答</span><span class="nav-sub"></span></button>
       <button class="nav-item" data-v="project"><span class="nav-dot" style="color:var(--cyan);background:var(--cyan)"></span><span class="nav-title">项目</span><span class="nav-sub"></span></button>
@@ -1549,8 +1670,31 @@
       <button class="nav-item" data-v="stdlog"><span class="nav-dot" style="color:var(--amber);background:var(--amber)"></span><span class="nav-title">沿革</span><span class="nav-sub"></span></button>
       <button class="nav-item" data-v="insight"><span class="nav-dot" style="color:var(--rose);background:var(--rose)"></span><span class="nav-title">洞察</span><span class="nav-sub"></span></button>
       <button class="nav-item" data-v="ops"><span class="nav-dot" style="color:var(--blue);background:var(--blue)"></span><span class="nav-title">运维</span><span class="nav-sub"></span></button>
+      </div>
+      <div id="navSimple" class="nav-simple" hidden>
+      <div class="nav-label">导航</div>
+      <button class="nav-item" data-v="today" data-nav-view="today"><span class="nav-dot" style="color:var(--amber);background:var(--amber)"></span><span class="nav-title">今天</span><span class="nav-sub"></span></button>
+      <button class="nav-item" data-v="ask" data-nav-view="ask"><span class="nav-dot" style="color:var(--blue);background:var(--blue)"></span><span class="nav-title">问答</span><span class="nav-sub"></span></button>
+      <button class="nav-item" data-v="record" data-nav-view="record"><span class="nav-dot" style="color:var(--pink);background:var(--pink)"></span><span class="nav-title">足迹</span><span class="nav-sub"></span></button>
+      <button class="nav-item" data-v="project" data-nav-view="project"><span class="nav-dot" style="color:var(--cyan);background:var(--cyan)"></span><span class="nav-title">项目</span><span class="nav-sub"></span></button>
+      <button class="nav-item" data-v="prompts" data-nav-view="prompts"><span class="nav-dot" style="color:var(--lime);background:var(--lime)"></span><span class="nav-title">引导语</span><span class="nav-sub"></span></button>
+      <button class="nav-item" data-v="settings" data-nav-view="settings"><span class="nav-dot" style="color:var(--blue);background:var(--blue)"></span><span class="nav-title">设置</span><span class="nav-sub"></span></button>
+      <details class="nav-more" id="navMore">
+        <summary>⋯ 更多</summary>
+        <button class="nav-item" data-v="stdlog"><span class="nav-dot" style="color:var(--amber);background:var(--amber)"></span><span class="nav-title">沿革</span></button>
+        <button class="nav-item" data-v="insight"><span class="nav-dot" style="color:var(--rose);background:var(--rose)"></span><span class="nav-title">洞察</span></button>
+        <button class="nav-item" data-v="console"><span class="nav-dot" style="color:var(--cyan);background:var(--cyan)"></span><span class="nav-title">终端</span></button>
+        <button class="nav-item" data-v="query"><span class="nav-dot" style="color:var(--mint);background:var(--mint)"></span><span class="nav-title">检索</span></button>
+      </details>
+      </div>
     </nav>
     <div class="sidebar-foot">
+      <button type="button" class="sidebar-tier-switch" id="sidebarTierSwitch" title="侧栏变为：今天 / 问答 / 足迹 / 项目 / 引导语 / 设置">切换到日常界面</button>
+      <div class="sidebar-tier-daily" id="sidebarTierDaily">
+        <span class="sidebar-tier-label">当前：日常版</span>
+        <button type="button" class="sidebar-tier-link" id="sidebarGoAcceptance" title="设计者验收与体验档位">去验收</button>
+        <button type="button" class="sidebar-tier-link sidebar-tier-link--muted" id="sidebarGoFullTier" title="恢复 13 项侧栏">完整版</button>
+      </div>
       <div class="sidebar-power" id="sidebarPower">
         <button type="button" class="toggle toggle--sidebar on" id="aiPowerToggle" role="switch" aria-checked="true" title="关闭后停止 Ollama 并暂停屏幕采样；Web 与时间线仍可用" onclick="return window.qrAiPowerClick(event)">
           <span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span>
@@ -1565,58 +1709,104 @@
         <span id="sidebarStatsSummary" title="健康检查摘要">加载中…</span>
       </div>
       <div class="stat-grid-col" id="sidebarStats"></div>
+      <div class="sidebar-health-simple" id="sidebarHealthSimple" hidden>
+        <span id="sidebarHealthText">加载中…</span>
+      </div>
     </div>
   </aside>
 
   <div class="main">
     <header class="topbar">
       <button type="button" class="menu-btn" id="menuBtn" aria-label="打开菜单">☰</button>
+      <div class="topbar-focus" id="topFocusBar">
+        <label for="topFocusSelect">本周主攻</label>
+        <select id="topFocusSelect" class="field-select" title="设置后接着干优先收束到该项目">
+          <option value="">（自动）</option>
+        </select>
+        <button type="button" class="btn btn-ghost btn-sm" id="topFocusAskBtn">问此项目</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="topFocusTimelineBtn">看记录</button>
+      </div>
       <div class="topbar-titles">
         <div class="page-title" id="pageTitle">问答</div>
-        <div class="page-desc" id="pageDesc">基于本地项目内容，可在两款问答模型间切换</div>
+        <div class="page-desc" id="pageDesc">基于本地项目内容 · Qwen 32B 日常 / DeepSeek R1 深度推理</div>
       </div>
       <div class="badges badges-dynamic" id="badges" aria-live="polite" title="任务状态 · 当前工作项目">
         <div class="badge-ticker-viewport"><div class="badge-ticker-inner" id="badgeTickerInner"><span class="badge">加载中…</span></div></div>
         <div class="badge-ticker-dots" id="badgeTickerDots"></div>
       </div>
     </header>
+    <div class="page-tabs" id="pageTabs" hidden role="tablist" aria-label="子页面"></div>
 
     <div class="content">
-      <!-- ASK -->
-      <section class="view view--fill active" id="view-ask">
-        <div class="section-card resume-card" id="resumeCard" hidden>
-          <div class="resume-head">
-            <span class="resume-title">接着干</span>
-            <span class="resume-meta" id="resumeMeta">加载中…</span>
-            <button type="button" class="btn btn-ghost btn-sm" id="resumeRefreshBtn">刷新</button>
-          </div>
-          <div class="resume-actions" id="resumeActions"></div>
-          <div class="resume-grid">
-            <div class="resume-col">
-              <div class="resume-col-title">Cursor 话题</div>
-              <div class="resume-list" id="resumeCursor"></div>
-            </div>
-            <div class="resume-col">
-              <div class="resume-col-title">近期 Git</div>
-              <div class="resume-list" id="resumeGit"></div>
-            </div>
-            <div class="resume-col">
-              <div class="resume-col-title">待办 / README</div>
-              <div class="resume-list" id="resumeTasks"></div>
-            </div>
+      <!-- TODAY -->
+      <section class="view view--fill" id="view-today">
+        <div class="page-ops">
+          <div class="today-quick">
+            <button type="button" class="btn btn-primary btn-sm" id="todayGoAsk">继续问</button>
+            <button type="button" class="btn btn-sm" id="todayGoLog">记一条</button>
+            <button type="button" class="btn btn-ghost btn-sm" id="todayGoTimeline">看时间线</button>
+            <button type="button" class="btn btn-ghost btn-sm" id="todayGoDoctor">系统检查</button>
+            <button type="button" class="btn btn-ghost btn-sm" id="todayRefreshBtn">刷新</button>
           </div>
         </div>
+        <div class="page-body page-body--grid">
+          <div class="section-card resume-card" id="todayResumeCard">
+            <div class="resume-head">
+              <span class="resume-title">接着干</span>
+              <span class="resume-meta" id="todayResumeMeta">加载中…</span>
+            </div>
+            <div class="resume-actions" id="todayResumeActions"></div>
+            <div class="resume-grid">
+              <div class="resume-col">
+                <div class="resume-col-title">Cursor 话题</div>
+                <div class="resume-list" id="todayResumeCursor"></div>
+              </div>
+              <div class="resume-col">
+                <div class="resume-col-title">近期 Git</div>
+                <div class="resume-list" id="todayResumeGit"></div>
+              </div>
+              <div class="resume-col">
+                <div class="resume-col-title">待办 / README</div>
+                <div class="resume-list" id="todayResumeTasks"></div>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-head">待处理</div>
+            <div id="todayAlerts" class="hint">加载中…</div>
+          </div>
+          <div class="card">
+            <div class="card-head">今日摘要</div>
+            <pre class="panel-pre" id="todayDigest" style="white-space:pre-wrap;font-size:13px;line-height:1.55">加载中…</pre>
+          </div>
+        </div>
+      </section>
+
+      <!-- ASK -->
+      <section class="view view--fill active" id="view-ask">
         <div class="section-card ask-ops split-ops">
           <div class="toolbar-stack">
+            <div class="toolbar-row">
+              <span class="toolbar-label">模式</span>
+              <div class="mode-seg" id="askModeSeg" role="tablist">
+                <button type="button" class="mode-seg-btn active" data-ask-mode="answer">回答</button>
+                <button type="button" class="mode-seg-btn" data-ask-mode="cite">出处</button>
+                <button type="button" class="mode-seg-btn" data-ask-mode="symbol">符号</button>
+              </div>
+              <button type="button" class="btn btn-ghost btn-sm" id="askAdvancedToggle">高级 ▾</button>
+            </div>
             <div class="toolbar-row">
               <span class="toolbar-label">提问</span>
               <div class="ask-composer-wrap">
                 <div class="composer composer-stack">
                   <textarea id="askInput" rows="3" placeholder="问点什么…（Enter 发送，Shift+Enter 换行）"></textarea>
                   <div class="composer-inline">
+                    <select id="askProject" class="field-select" title="限定项目"></select>
+                    <button type="button" class="btn btn-primary" id="askBtn">提问 ↵</button>
+                  </div>
+                  <div class="composer-inline ask-advanced" id="askAdvanced" hidden>
                     <select id="askModel" class="field-select" title="问答模型"></select>
                     <select id="askCategory" class="field-select" title="限定分类" style="max-width:110px"><option value="">全部分类</option></select>
-                    <select id="askProject" class="field-select" title="限定项目"></select>
                     <label class="toggle" id="citationsToggle" title="只列检索片段出处，不调用 chat 模型生成">
                       <span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span>
                       <span class="toggle-label">
@@ -1633,12 +1823,11 @@
                       </span>
                       <input type="checkbox" id="webChk" aria-label="联网搜索">
                     </label>
-                    <button type="button" class="btn btn-primary" id="askBtn">提问 ↵</button>
                   </div>
                 </div>
               </div>
             </div>
-            <div class="toolbar-row filter-bar" style="margin:0;padding:0;border:none;background:transparent">
+            <div class="toolbar-row filter-bar ask-advanced" id="askFilterBar" hidden style="margin:0;padding:0;border:none;background:transparent">
               <span class="toolbar-label">浏览</span>
               <input type="text" id="askSearch" class="ask-search" placeholder="搜索标题…" style="max-width:220px">
               <div class="tl-range">
@@ -1692,15 +1881,20 @@
                 </div>
               </div>
               <div class="ask-empty" id="askEmpty">
-                <div>
-                  <div class="ask-empty-icon">💬</div>
-                  在左侧选择一条历史，或直接在上方提问开始新对话
+                <div class="empty-state">
+                  <div class="empty-state-icon">💬</div>
+                  <div class="empty-state-title">向自己的代码提问，或试试：</div>
+                  <button type="button" class="btn btn-ghost btn-sm ask-sample" data-q="这个项目的入口在哪？">入口在哪？</button>
+                  <button type="button" class="btn btn-ghost btn-sm ask-sample" data-q="有哪些 API 路由？">有哪些 API？</button>
+                  <button type="button" class="btn btn-ghost btn-sm ask-sample" data-q="数据库 schema 在哪？">数据库 schema？</button>
+                  <div class="empty-state-secondary"><a href="#" class="tl-link" id="askEmptySyncLink">去设置 · 一键同步索引</a></div>
                 </div>
               </div>
               <div class="chat-thread" id="askThread" hidden></div>
             </div>
           </div>
         </div>
+        <div class="page-body page-body--scroll ask-cite-out" id="askCiteOut" hidden></div>
       </section>
 
       <section class="view view--fill" id="view-project">
@@ -1997,7 +2191,11 @@
       <!-- STANDARDS -->
       <section class="view view--fill" id="view-standards">
         <div class="page-ops">
-        <div class="toolbar">
+        <div class="standards-subtabs" role="tablist">
+          <button type="button" class="std-subtab active" data-std-panel="body" id="stdTabBody">正文</button>
+          <button type="button" class="std-subtab" data-std-panel="log" id="stdTabLog">沿革</button>
+        </div>
+        <div class="toolbar" id="stdToolbarBody">
           <select id="stdVer" class="field-select" style="flex:1;max-width:320px"></select>
           <button class="btn btn-ghost btn-sm" id="stdEditBtn">编辑</button>
           <button class="btn btn-ghost btn-sm" id="stdSaveBtn" style="display:none">保存</button>
@@ -2011,10 +2209,22 @@
         </div>
         </div>
         <div class="page-body">
+        <div id="stdPanelBody" class="std-panel">
         <div id="stdPending" class="std-pending" hidden></div>
         <div class="card std-wrap">
           <div class="std-body" id="stdOut"></div>
           <textarea class="std-edit" id="stdEdit" hidden spellcheck="false"></textarea>
+        </div>
+        </div>
+        <div id="stdPanelLog" class="std-panel" hidden>
+          <div class="toolbar" style="margin-bottom:12px">
+            <button type="button" class="btn btn-primary btn-sm" id="stdEmbedLogReloadBtn">刷新沿革</button>
+            <button type="button" class="btn btn-ghost btn-sm" id="stdEmbedLogPruneBtn">清理无效版本</button>
+            <span class="hint" id="stdEmbedLogHint" style="margin:0">自第 2 版起，仅显示有实质增删改的归档</span>
+          </div>
+          <div class="stdlog-scroll">
+            <div class="stdlog-list" id="stdEmbedLogOut"><div class="empty"><div class="empty-icon">📜</div>加载中…</div></div>
+          </div>
         </div>
         </div>
       </section>
@@ -2102,12 +2312,10 @@
           <aside class="insight-sidebar split-sidebar card">
             <div class="card-head" style="margin:0;padding:12px 14px;border-bottom:1px solid var(--border)">洞察工作台</div>
             <nav class="insight-nav" role="tablist" aria-label="洞察分区">
-              <button type="button" class="insight-nav-btn active" data-insight-tab="bench" role="tab" aria-selected="true">工作台</button>
-              <button type="button" class="insight-nav-btn" data-insight-tab="digest" role="tab" aria-selected="false">每日洞察</button>
-              <button type="button" class="insight-nav-btn" data-insight-tab="graph" role="tab" aria-selected="false">知识图谱</button>
+              <button type="button" class="insight-nav-btn active" data-insight-tab="graph" role="tab" aria-selected="true">知识图谱</button>
               <button type="button" class="insight-nav-btn" data-insight-tab="quality" role="tab" aria-selected="false">合规评测</button>
             </nav>
-            <div class="insight-side-stats" id="insightStatRow">
+            <div class="insight-side-stats" id="insightStatRow" hidden>
               <div class="insight-stat-mini"><span>活跃项目</span><strong id="insightKpiProject">—</strong></div>
               <div class="insight-stat-mini"><span>引导语收件箱</span><strong id="insightKpiInbox">—</strong></div>
               <div class="insight-stat-mini"><span>主动提醒</span><strong id="insightKpiAlerts">—</strong></div>
@@ -2122,50 +2330,12 @@
               </select>
             </div>
             <div class="insight-side-ops">
-              <button class="btn btn-primary btn-sm" id="todayRefreshBtn">刷新总览</button>
+              <button class="btn btn-ghost btn-sm" id="insightRefreshBtn">刷新</button>
               <button class="btn btn-ghost btn-sm" id="insightAlertsBtn">刷新提醒</button>
             </div>
           </aside>
           <div class="insight-main split-main">
-            <section class="insight-panel active" data-insight-panel="bench" role="tabpanel">
-              <div class="insight-card insight-card--plan insight-card--plan-compact">
-                <div class="insight-card-head">每日计划 <span class="hint" id="dailyPlanMeta"></span></div>
-                <div id="dailyPlanList" class="daily-plan-list daily-plan-list--compact">加载中…</div>
-              </div>
-              <div class="insight-card">
-                <div class="insight-card-head">设计者验收 <span class="hint">改完功能后三步收束</span></div>
-                <div class="insight-toolbar insight-toolbar--sub" style="margin:0 0 8px">
-                  <button type="button" class="btn btn-primary btn-sm" id="shipDoctorBtn">① 检查系统是否正常</button>
-                  <a class="btn btn-ghost btn-sm" id="shipWebLink" href="/" target="_blank" rel="noopener">② 试用刚改的功能</a>
-                  <button type="button" class="btn btn-ghost btn-sm" id="shipDecisionBtn">③ 记下为什么这样选</button>
-                </div>
-                <pre class="insight-card-body" id="shipDoctorDetail" style="min-height:48px;font-size:12px">点击 ① 运行系统检查（等同 qr doctor 摘要）</pre>
-                <pre class="insight-card-body" id="designerMetricsOut" style="min-height:32px;font-size:11px;color:var(--muted)"></pre>
-              </div>
-              <div class="insight-bench-main">
-                <div class="insight-card">
-                  <div class="insight-card-head">接着干 · 洞察预览</div>
-                  <pre class="insight-card-body" id="todayOut">加载中…</pre>
-                </div>
-                <div class="insight-card">
-                  <div class="insight-card-head">主动提醒</div>
-                  <pre class="insight-card-body is-empty" id="insightAlertsOut">暂无主动提醒</pre>
-                </div>
-              </div>
-            </section>
-            <section class="insight-panel" data-insight-panel="digest" role="tabpanel">
-              <div class="insight-toolbar">
-                <button class="btn btn-primary btn-sm" id="digestBtn">每日洞察</button>
-                <button class="btn btn-ghost btn-sm" id="digestNotifyBtn">洞察+通知</button>
-                <button class="btn btn-ghost btn-sm" id="factsInsightBtn">稳定事实</button>
-                <button class="btn btn-ghost btn-sm" id="exportBtn">导出 Obsidian</button>
-              </div>
-              <div class="insight-card" style="flex:1;min-height:0">
-                <div class="insight-card-head">洞察摘要</div>
-                <pre class="insight-card-body insight-card-body--prose" id="insightOut">点击「每日洞察」生成摘要；「稳定事实」查看知识库要点。</pre>
-              </div>
-            </section>
-            <section class="insight-panel insight-panel--graph" data-insight-panel="graph" role="tabpanel">
+            <section class="insight-panel active insight-panel--graph" data-insight-panel="graph" role="tabpanel">
               <div class="insight-toolbar">
                 <button class="btn btn-primary btn-sm" id="graphBtn">加载图谱</button>
                 <span class="hint" style="margin:0">拖拽平移 · 滚轮缩放</span>
@@ -2236,9 +2406,56 @@
         </div>
       </section>
 
+      <section class="view view--fill" id="view-acceptance">
+        <div class="page-body page-body--grid">
+          <div class="insight-card">
+            <div class="insight-card-head">设计者验收 <span class="hint">改完功能后三步收束</span></div>
+            <div class="insight-toolbar insight-toolbar--sub" style="margin:0 0 8px">
+              <button type="button" class="btn btn-primary btn-sm" id="shipDoctorBtn">① 检查系统是否正常</button>
+              <a class="btn btn-ghost btn-sm" id="shipWebLink" href="/" target="_blank" rel="noopener">② 试用刚改的功能</a>
+              <button type="button" class="btn btn-ghost btn-sm" id="shipDecisionBtn">③ 记下为什么这样选</button>
+            </div>
+            <pre class="insight-card-body" id="shipDoctorDetail" style="min-height:48px;font-size:12px">点击 ① 运行系统检查（等同 qr doctor 摘要）</pre>
+            <pre class="insight-card-body" id="designerMetricsOut" style="min-height:32px;font-size:11px;color:var(--muted)"></pre>
+          </div>
+          <div class="card">
+            <div class="card-head">体验档位</div>
+            <p class="hint" style="padding:0 12px 8px">日常开发推荐「日常」档；维护 QR 本身可用「完整」档恢复 13 项侧栏。</p>
+            <div style="padding:0 12px 12px;display:flex;gap:8px;flex-wrap:wrap">
+              <button type="button" class="btn btn-sm ui-tier-btn" data-tier="starter">入门</button>
+              <button type="button" class="btn btn-sm ui-tier-btn" data-tier="daily">日常</button>
+              <button type="button" class="btn btn-sm ui-tier-btn" data-tier="full">完整</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <section class="view view--fill" id="view-ops">
         <div class="page-ops">
-        <div class="toolbar-stack">
+        <div class="card ops-ui-tier-banner" id="opsUiTierBanner">
+          <div class="card-head">界面体验 · 当前为「完整」档</div>
+          <p class="hint" style="padding:0 12px 8px">侧栏仍是 13 项（核心 / 记录 / 治理）。日常开发推荐切到「日常」档：侧栏变为 <strong>今天 / 问答 / 足迹 / 项目 / 引导语 / 设置</strong>，验收与档位在 <strong>设置 → 验收</strong>。</p>
+          <div style="padding:0 12px 12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <button type="button" class="btn btn-sm ui-tier-btn" data-tier="starter">入门</button>
+            <button type="button" class="btn btn-primary btn-sm ui-tier-btn" data-tier="daily">日常</button>
+            <button type="button" class="btn btn-sm ui-tier-btn" data-tier="full">完整</button>
+            <button type="button" class="btn btn-ghost btn-sm" id="opsGoAcceptanceBtn">设计者验收</button>
+          </div>
+        </div>
+        <div class="ops-tier-primary">
+          <div class="ops-tier-head">常用</div>
+          <div class="btn-group">
+            <button class="btn btn-primary btn-sm" id="opsSyncBtn">一键同步</button>
+            <button class="btn btn-sm" id="opsBackupBtn">备份数据库</button>
+            <button class="btn btn-sm" id="opsScheduleBtn">安装定时任务</button>
+            <button class="btn btn-ghost btn-sm" id="opsShipDoctorBtn">系统检查</button>
+            <button class="btn btn-ghost btn-sm" id="opsUiTierBtn">体验档位</button>
+            <button class="btn btn-primary btn-sm" id="opsRefreshBtn">刷新状态</button>
+          </div>
+        </div>
+        <div class="ops-tier-advanced" id="opsAdvanced" hidden>
+          <div class="ops-tier-head">高级</div>
+          <div class="toolbar-stack">
           <div class="toolbar-row">
             <span class="toolbar-label">Cursor</span>
             <div class="btn-group">
@@ -2248,12 +2465,9 @@
           <div class="toolbar-row">
             <span class="toolbar-label">维护</span>
             <div class="btn-group">
-              <button class="btn btn-primary btn-sm" id="opsRefreshBtn">刷新状态</button>
-              <button class="btn btn-sm" id="opsBackupBtn">备份数据库</button>
               <button class="btn btn-ghost btn-sm" id="opsBackupVerifyBtn">校验最近备份</button>
               <button class="btn btn-ghost btn-sm" id="opsIndexHealthBtn">索引健康</button>
-              <button class="btn btn-sm" id="opsOptimizeBtn">一键优化</button>
-              <button class="btn btn-sm" id="opsScheduleBtn">安装定时任务</button>
+              <button class="btn btn-sm" id="opsOptimizeBtn">推荐维护</button>
             </div>
           </div>
           <div class="toolbar-row">
@@ -2268,7 +2482,9 @@
             </div>
             <span class="hint" id="opsHint" style="margin:0"></span>
           </div>
+          </div>
         </div>
+        <button type="button" class="btn btn-ghost btn-sm" id="opsAdvancedToggle" style="margin-top:8px">高级选项 ▾</button>
         </div>
         <div class="page-body page-body--grid">
         <div class="insight-grid">
@@ -2295,6 +2511,25 @@
         </div>
         </div>
       </section>
+    </div>
+  </div>
+</div>
+
+<div class="cmd-palette" id="cmdPalette" hidden>
+  <div class="cmd-palette-card" id="cmdPaletteOverlay">
+    <input type="text" class="cmd-palette-input" id="cmdPaletteInput" placeholder="搜索命令或页面…（Esc 关闭）" autocomplete="off" spellcheck="false">
+    <div class="cmd-palette-list" id="cmdPaletteList"></div>
+  </div>
+</div>
+
+<div class="onboarding-wizard" id="onboardingWizard" hidden role="dialog" aria-modal="true">
+  <div class="onboarding-card">
+    <h2>欢迎使用 QR 知识库</h2>
+    <p id="onboardingBody">加载中…</p>
+    <div class="ob-dots" id="onboardingDots"></div>
+    <div style="display:flex;gap:8px;margin-top:16px">
+      <button type="button" class="btn btn-primary btn-sm" id="onboardingNext">下一步</button>
+      <button type="button" class="btn btn-ghost btn-sm" id="onboardingSkip">跳过</button>
     </div>
   </div>
 </div>
@@ -2379,6 +2614,17 @@
 </div>
 
 <script src="/assets/js/qr-core.js"></script>
+<div hidden aria-hidden="true">
+  <pre id="todayOut"></pre>
+  <pre id="insightOut"></pre>
+  <pre id="insightAlertsOut"></pre>
+  <div id="dailyPlanMeta"></div>
+  <div id="dailyPlanList"></div>
+  <button type="button" id="digestBtn"></button>
+  <button type="button" id="digestNotifyBtn"></button>
+  <button type="button" id="factsInsightBtn"></button>
+  <button type="button" id="exportBtn"></button>
+</div>
 <script>
 async function runIndexJob(body, onTick) {
   const started = await api('/api/index', {
@@ -2399,19 +2645,21 @@ async function runIndexJob(body, onTick) {
 }
 const PALETTE=['#6ea8fe','#7ee0a8','#ffb86b','#c9a0ff','#ff9ec0','#5ad1e0','#ffd86b','#a0e57e','#ff8fa3','#8fd3ff'];
 const PAGE={
-  ask:{title:'问答',desc:'基于本地项目内容 · Qwen 32B 日常 / DeepSeek R1 深度推理'},
-  project:{title:'项目',desc:'单项目 Git / Cursor / 合规 / 稳定事实 / 检索样例'},
-  relations:{title:'项目关系',desc:'组合分组 · 协作边 · 自动推断与手动维护'},
-  query:{title:'检索',desc:'Hybrid 检索 · 可解释分数（向量/FTS/RRF/boost）'},
+  today:{title:'今天',desc:'接着干 · 待处理 · 今日摘要'},
+  ask:{title:'问答',desc:'向自己的代码提问 · 本地 AI 回答'},
+  project:{title:'项目',desc:'单项目 Git / Cursor / 合规 / 稳定事实'},
+  relations:{title:'关系',desc:'组合分组 · 协作边 · 自动推断与手动维护'},
+  query:{title:'检索',desc:'Hybrid 检索 · 可解释分数'},
   usage:{title:'应用',desc:'焦点应用时长、频率与占比'},
-  summary:{title:'总结',desc:'生成周期总结 · 左列表右正文 · 规范对照修订'},
+  summary:{title:'总结',desc:'生成周期总结 · 对照规范修订'},
   timeline:{title:'时间线',desc:'按来源 / 日期浏览行为记录'},
-  standards:{title:'规范',desc:'个人开发规范，版本化管理，可 Web 编辑'},
-  stdlog:{title:'规范沿革',desc:'自第 2 版起仅显示相对上一版的增加、删减与修改'},
-  insight:{title:'洞察',desc:'每日摘要 · 合规 · 知识图谱 · RAG 评测'},
-  prompts:{title:'引导语',desc:'Cursor 问话自动采集 · 分类 · 多段合并为可复用提示'},
+  standards:{title:'规范',desc:'个人开发规范 · 版本化管理'},
+  stdlog:{title:'沿革',desc:'规范相对上一版的增删改'},
+  insight:{title:'洞察',desc:'知识图谱 · 合规与 RAG 评测'},
+  prompts:{title:'引导语',desc:'Cursor 问话采集 · 合并为可复用提示'},
   console:{title:'终端',desc:'Web / CLI / 后台任务 · 实时输出'},
-  ops:{title:'运维',desc:'自检 · 备份 · 定时任务 · Git 目录 · 散落项目导入'},
+  ops:{title:'设置',desc:'同步 · 备份 · 定时任务 · 系统检查'},
+  acceptance:{title:'验收',desc:'改完功能后三步收束 · 体验档位'},
 };
 let projectCatalog={categories:[],projects:[],by_category:{}};
 
@@ -2606,6 +2854,8 @@ $('#menuBtn').onclick=openSidebar;
 $('#sidebarOverlay').onclick=closeSidebar;
 
 function switchView(v){
+  let stdlogMode=false;
+  if(v==='stdlog'){ stdlogMode=true; v='standards'; }
   if(v!=='standards'&&stdEditing){
     if(!confirm('规范尚未保存，离开将放弃修改。确定离开？')) return;
     exitStdEdit(true);
@@ -2616,21 +2866,21 @@ function switchView(v){
   if(el) el.classList.add('active');
   const p=PAGE[v];
   if(p){$('#pageTitle').textContent=p.title;$('#pageDesc').textContent=p.desc}
+  if(v==='today'){ if(window.QrNav?.loadTodayView) QrNav.loadTodayView(); }
+  if(v==='acceptance'){ if(typeof loadDesignerMetrics==='function') loadDesignerMetrics(); }
   if(v==='timeline'){tlInitSort();tlRestoreFilters();syncTimelineFilters();if(!tlState.dateFrom&&!tlState.dateTo)tlState.page=1;loadTimeline()}
-  if(v==='standards') loadStandards();
+  if(v==='standards'){ loadStandards(); if(stdlogMode) switchStdPanel('log'); }
   if(v==='summary'){
     if(!sumState.dateFrom&&!sumState.dateTo&&!sumState.period) sumState.page=1;
     loadSummaries();
     loadStdSummaryRef(stdSummaryPeriod||$('#sumGenPeriod')?.value||'week');
   }
-  if(v==='stdlog') loadStdChangelog();
   if(v==='insight')loadInsightPlaceholder();
   if(v==='ops')loadOps();
   if(v==='usage')loadUsage();
   if(v==='ask'){
     if(!askState.dateFrom&&!askState.dateTo&&!askState.q)askState.page=1;
     loadChats();
-    loadResumePanel();
   }
   if(v==='project'){
     loadProjects();
@@ -2642,8 +2892,24 @@ function switchView(v){
   qrRunSyncGroupHints();
   scheduleProjectFocusFetch();
   renderNavSubs();
+  if(window.QrNav?.syncNavActive) QrNav.syncNavActive(v);
   closeSidebar();
 }
+
+function navTargetView(v){
+  if(v==='record') return 'timeline';
+  if(v==='settings') return 'ops';
+  return v;
+}
+function switchStdPanel(which){
+  const body=$('#stdPanelBody'), log=$('#stdPanelLog'), tb=$('#stdToolbarBody');
+  $$('.std-subtab').forEach(t=>t.classList.toggle('active',t.dataset.stdPanel===which));
+  if(body) body.hidden=which!=='body';
+  if(log) log.hidden=which!=='log';
+  if(tb) tb.hidden=which!=='body';
+  if(which==='log') loadStdChangelog('embed');
+}
+$$('.std-subtab').forEach(t=>t.onclick=()=>switchStdPanel(t.dataset.stdPanel||'body'));
 
 const pgState={
   selected:new Set(),
@@ -3404,7 +3670,60 @@ $('#pgNewBtn').onclick=async()=>{
     loadPrompts();
   }catch(e){alert(e.message)}
 };
-$$('.nav-item').forEach(n=>n.onclick=()=>switchView(n.dataset.v));
+$$('.nav-item').forEach(n=>n.onclick=()=>switchView(navTargetView(n.dataset.v)));
+
+let askUiMode='answer';
+function setAskUiMode(mode){
+  askUiMode=mode||'answer';
+  $$('#askModeSeg .mode-seg-btn').forEach(b=>b.classList.toggle('active',b.dataset.askMode===askUiMode));
+  const shell=document.querySelector('#view-ask .ask-shell');
+  const citeOut=$('#askCiteOut');
+  if(askUiMode==='answer'){
+    if(shell) shell.style.display='';
+    if(citeOut) citeOut.hidden=true;
+    if($('#citationsOnlyChk')){ $('#citationsOnlyChk').checked=false; syncCitationsToggle(); }
+    if($('#qSymbolChk')){ $('#qSymbolChk').checked=false; syncSymbolPill(); }
+  }else if(askUiMode==='cite'){
+    if(shell) shell.style.display='none';
+    if(citeOut) citeOut.hidden=false;
+    if($('#citationsOnlyChk')){ $('#citationsOnlyChk').checked=true; syncCitationsToggle(); }
+  }else if(askUiMode==='symbol'){
+    if(shell) shell.style.display='none';
+    if(citeOut) citeOut.hidden=false;
+    if($('#qSymbolChk')){ $('#qSymbolChk').checked=true; syncSymbolPill(); }
+  }
+}
+$$('#askModeSeg .mode-seg-btn').forEach(b=>b.onclick=()=>setAskUiMode(b.dataset.askMode));
+$('#askAdvancedToggle')?.addEventListener('click',()=>{
+  const adv=$('#askAdvanced'), fb=$('#askFilterBar');
+  const show=adv&&adv.hidden;
+  if(adv) adv.hidden=!show;
+  if(fb) fb.hidden=!show;
+});
+$$('.ask-sample').forEach(b=>b.addEventListener('click',()=>{ const q=b.dataset.q; if(q&&$('#askInput')){ $('#askInput').value=q; $('#askInput').focus(); }}));
+$('#askEmptySyncLink')?.addEventListener('click',(e)=>{ e.preventDefault(); switchView('ops'); });
+
+async function submitAskCiteOrSymbol(){
+  const q=$('#askInput').value.trim(); if(!q) return;
+  const out=$('#askCiteOut'); if(!out) return;
+  out.hidden=false;
+  out.innerHTML='<div class="empty"><span class="spin"></span></div>';
+  const project=$('#askProject').value||'';
+  const category=$('#askCategory').value||'';
+  try{
+    if(askUiMode==='symbol'){
+      const r=await api('/api/symbol?'+new URLSearchParams({name:q,project,limit:'20'}));
+      const hits=r.hits||[];
+      out.innerHTML=hits.length?`<div class="hits">${hits.map(hitCard).join('')}</div>`:'<div class="empty"><div class="empty-icon">🔍</div>未找到符号</div>';
+    }else{
+      const r=await api('/api/query',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:q,k:8,project,category})});
+      const hits=r.hits||[];
+      out.innerHTML=hits.length?`<div class="hits">${hits.map(hitCard).join('')}</div>`:'<div class="empty"><div class="empty-icon">🔍</div>没有命中</div>';
+    }
+  }catch(e){
+    out.innerHTML=`<div class="card" style="color:var(--amber)">${esc(e.message)}</div>`;
+  }
+}
 function syncWebToggle(){
   const on=$('#webChk').checked;
   $('#webToggle').classList.toggle('on',on);
@@ -3523,9 +3842,10 @@ function navSubLineHtml(subs){
 function renderNavSubs(){
   $$('.nav-item').forEach(btn=>{
     const v=btn.dataset.v;
+    const navView=btn.dataset.navView||v;
     const el=btn.querySelector('.nav-sub');
     if(!el) return;
-    const subs=navSubState.byView[v]||[];
+    const subs=navSubState.byView[navView]||navSubState.byView[v]||[];
     if(!subs.length){el.innerHTML='';el.title='';return}
     const inner=navSubLineHtml(subs);
     el.title=subs.join(' · ');
@@ -3539,7 +3859,10 @@ function buildNavSubLines(s){
   const ev=s.events||{};
   const pg=s.prompt_guides||{};
   return{
+    today:['接着干','待处理摘要'],
     ask:[s.default_ask_model||'默认模型',`${fmt(s.chats)} 个会话`],
+    record:[`${fmt(s.event_total||0)} 事件`,'时间线 · 总结'],
+    settings:['备份 · 同步','系统检查'],
     project:[`${s.projects||0} 个项目`,`${fmt(s.documents)} 篇已索引`],
     relations:['组合 · 协作边','README · 行为推断'],
     query:[`${fmt(s.chunks)} 向量块`,s.backend||'检索引擎'],
@@ -3779,6 +4102,10 @@ if(!window._qrPillarResize){
 const resumeState={loading:false,data:null};
 
 function renderResumePanel(d){
+  if(window.QrNav&&d){
+    const rb=window.QrNav.renderResumeBlock;
+    if(typeof rb==='function'){ rb(d,'today'); return; }
+  }
   const card=$('#resumeCard');
   if(!card) return;
   if(!d){
@@ -3841,6 +4168,7 @@ async function loadStats(){
       sumEl.title=(s.health_issues||[]).map(i=>`${i.area}: ${i.message}`).join('\n')||s.summary||'';
     }
     renderStatusPillars(s);
+    if(window.QrNav?.renderHealthSimple) QrNav.renderHealthSimple(s);
     navSubState.byView=buildNavSubLines(s);
     renderNavSubs();
     badgeTickerState.status=s;
@@ -4139,6 +4467,7 @@ async function openChatSession(id){
   }
 }
 async function submitAsk(){
+  if(askUiMode!=='answer'){ await submitAskCiteOrSymbol(); return; }
   const q=$('#askInput').value.trim();if(!q)return;
   if(qrRunHas('ask')) return;
   const b=$('#askBtn');b.disabled=true;
@@ -4950,7 +5279,7 @@ async function loadStandards(){
     const r=await api('/api/standards');
     applyStandardsPayload(r);
     await loadStdPending();
-    if($('#view-stdlog')?.classList.contains('active')) loadStdChangelog();
+    if($('#view-stdlog')?.classList.contains('active')) loadStdChangelog('page');
   }catch(e){
     $('#stdHint').textContent='加载失败：'+e.message;
     if(stdEditing) exitStdEdit(true);
@@ -5014,7 +5343,7 @@ async function confirmStdPending(){
     showStdPending(null);
     $('#stdHint').dataset.idle='已确认并应用修订';
     $('#stdHint').textContent='已确认并应用修订';
-    if($('#view-stdlog')?.classList.contains('active')) loadStdChangelog();
+    if($('#view-stdlog')?.classList.contains('active')) loadStdChangelog('page');
   }catch(e){
     $('#stdHint').textContent='确认失败：'+e.message;
   }
@@ -5243,7 +5572,7 @@ async function stdReviseWithPeriod(period, {fromSummary=false,fromConversations=
       $('#stdHint').dataset.idle=msg;
       $('#stdHint').textContent=msg;
     }
-    if($('#view-stdlog')?.classList.contains('active')) loadStdChangelog();
+    if($('#view-stdlog')?.classList.contains('active')) loadStdChangelog('page');
   }catch(e){
     err=true;
     msg='出错：'+e.message;
@@ -5360,9 +5689,10 @@ function renderStdChangelogEntry(ch){
   return parts.join('');
 }
 
-async function loadStdChangelog(){
-  const out=$('#stdlogOut');
-  const hint=$('#stdlogHint');
+async function loadStdChangelog(scope){
+  const embed=scope==='embed';
+  const out=$(embed?'#stdEmbedLogOut':'#stdlogOut');
+  const hint=$(embed?'#stdEmbedLogHint':'#stdlogHint');
   if(!out) return;
   out.innerHTML='<div class="empty"><span class="spin"></span> 加载沿革…</div>';
   try{
@@ -5385,14 +5715,24 @@ async function loadStdChangelog(){
   }
 }
 
-$('#stdlogReloadBtn')?.addEventListener('click',()=>loadStdChangelog());
+$('#stdlogReloadBtn')?.addEventListener('click',()=>loadStdChangelog('page'));
+$('#stdEmbedLogReloadBtn')?.addEventListener('click',()=>loadStdChangelog('embed'));
 $('#stdlogPruneBtn')?.addEventListener('click',async()=>{
   if(!confirm('将删除测试/调试备注、与上一版正文相同、无可展示 diff 的规范归档（不删首版）。继续？')) return;
   try{
     const r=await api('/api/standards/changelog/prune',{method:'POST'});
     const n=(r.removed||0)+(r.pruned_noise||0);
     $('#stdlogHint').textContent=`已清理 ${n} 条无效版本 · ${(r.changes||[]).length} 次有记录变更`;
-    await loadStdChangelog();
+    await loadStdChangelog('page');
+  }catch(e){alert(e.message)}
+});
+$('#stdEmbedLogPruneBtn')?.addEventListener('click',async()=>{
+  if(!confirm('将删除测试/调试备注、与上一版正文相同、无可展示 diff 的规范归档（不删首版）。继续？')) return;
+  try{
+    const r=await api('/api/standards/changelog/prune',{method:'POST'});
+    const n=(r.removed||0)+(r.pruned_noise||0);
+    $('#stdEmbedLogHint').textContent=`已清理 ${n} 条无效版本 · ${(r.changes||[]).length} 次有记录变更`;
+    await loadStdChangelog('embed');
   }catch(e){alert(e.message)}
 });
 $('#stdlogOpenStdBtn')?.addEventListener('click',()=>switchView('standards'));
@@ -6373,6 +6713,27 @@ async function loadOps(){
   }
 }
 $('#opsRefreshBtn')?.addEventListener('click',()=>loadOps());
+$('#opsSyncBtn')?.addEventListener('click',async()=>{
+  if(qrRunHas('ops-sync')) return;
+  qrRunStart({id:'ops-sync',label:'一键同步',group:'ops',hintEl:'#opsHint'});
+  let msg='',err=false;
+  try{
+    await api('/api/ops/sync',{method:'POST'});
+    msg='已在后台开始同步（采集 + 索引），可在终端页查看进度';
+  }catch(e){err=true;msg='同步失败：'+e.message}
+  qrRunEnd('ops-sync',{message:msg,error:err});
+});
+function goAcceptanceView(runDoctor){
+  switchView('acceptance');
+  if(runDoctor && typeof runShipDoctor==='function') runShipDoctor();
+}
+$('#opsShipDoctorBtn')?.addEventListener('click',()=>goAcceptanceView(true));
+$('#opsGoAcceptanceBtn')?.addEventListener('click',()=>goAcceptanceView(false));
+$('#opsUiTierBtn')?.addEventListener('click',()=>goAcceptanceView(false));
+$('#opsAdvancedToggle')?.addEventListener('click',()=>{
+  const el=$('#opsAdvanced');
+  if(el) el.hidden=!el.hidden;
+});
 $('#opsCursorAlignBtn')?.addEventListener('click',async()=>{
   const el=$('#opsCursorAlignOut');
   if(!el) return;
@@ -6803,15 +7164,22 @@ async function ensureBootOnline(){
 }
 $('#bootRetryBtn')?.addEventListener('click',()=>location.reload());
 tlInitSort();
-ensureBootOnline().then(ok=>{
+</script>
+<script src="/assets/js/qr-nav.js?v=20260701b"></script>
+<script>
+ensureBootOnline().then(async ok=>{
   if(!ok) return;
   loadAiPower();
-  loadStats();loadProjects();loadAskModels();loadResumePanel();
+  loadStats();loadProjects();loadAskModels();
   graphBindZoom($('#graphSvg'));
   graphBindZoom($('#relGraphSvg'));
   initBrandMotion();
   scheduleProjectFocusFetch();
-  loadChats();
+  if(window.QrNav?.bootNav){
+    await QrNav.bootNav();
+  }else{
+    loadChats();
+  }
 });
 </script>
 <script src="/assets/js/qr-features.js"></script>

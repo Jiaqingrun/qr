@@ -39,9 +39,10 @@ def _read_ui_sources() -> tuple[str, str]:
     html = (_STATIC / "index.html").read_text(encoding="utf-8")
     features = (_STATIC / "js" / "qr-features.js").read_text(encoding="utf-8")
     core = (_STATIC / "js" / "qr-core.js").read_text(encoding="utf-8")
+    nav = (_STATIC / "js" / "qr-nav.js").read_text(encoding="utf-8")
     script_m = re.search(r"<script>\s*(.*?)\s*</script>\s*<script src=", html, re.S)
     inline = script_m.group(1) if script_m else ""
-    return html, inline + "\n" + features + "\n" + core
+    return html, inline + "\n" + features + "\n" + core + "\n" + nav
 
 
 def _routes_from_web() -> list[str]:
