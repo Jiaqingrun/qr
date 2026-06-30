@@ -26,7 +26,8 @@
     --split-pad:20px;
   }
   *{box-sizing:border-box;margin:0;padding:0}
-  html,body{height:100%}
+  html,body{height:100%;width:100%}
+  [hidden]{display:none!important}
   body{
     font-family:var(--font); font-size:14px; line-height:1.6; color:var(--text);
     background:var(--bg0);
@@ -44,7 +45,7 @@
   *::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.2)}
 
   /* ── Shell ── */
-  .app{display:grid; grid-template-columns:var(--sidebar-w) 1fr; height:100vh; overflow:hidden}
+  .app{display:grid;grid-template-columns:var(--sidebar-w) minmax(0,1fr);width:100%;height:100vh;overflow:hidden}
   .sidebar-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:90;backdrop-filter:blur(2px)}
   .sidebar-overlay.show{display:block}
   @media(max-width:900px){
@@ -315,7 +316,7 @@
   .stat-chip.c-muted,.stat-chip.c-muted b{color:var(--muted)}
 
   /* ── Main ── */
-  .main{display:flex;flex-direction:column;min-width:0;height:100vh;overflow:hidden}
+  .main{display:flex;flex-direction:column;min-width:0;width:100%;height:100vh;overflow:hidden}
   .topbar{
     display:flex;align-items:center;gap:14px;padding:12px 24px 12px 20px;
     border-bottom:1px solid var(--border);background:rgba(8,10,15,.75);backdrop-filter:blur(16px);
@@ -516,18 +517,23 @@
 
   .content{
     padding:var(--split-pad) var(--split-pad) calc(var(--split-pad) + 6px);
-    flex:1;min-height:0;overflow:hidden;
+    flex:1;min-height:0;min-width:0;overflow:hidden;
     display:flex;flex-direction:column;
     max-width:none;width:100%;margin:0;
   }
   .view{display:none;animation:fadeIn .3s var(--ease)}
   .view.view--fill.active{
-    display:flex;flex-direction:column;flex:1;min-height:0;gap:var(--split-gap);
+    display:flex;flex-direction:column;flex:1 1 0;min-height:0;min-width:0;width:100%;height:0;gap:var(--split-gap);
   }
   @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
   .page-ops{display:flex;flex-direction:column;gap:var(--split-gap);flex-shrink:0}
   .page-ops > .toolbar{margin-bottom:0}
   .page-ops > .composer{margin-bottom:0}
+  .page-ops > .filter-bar{margin-bottom:0}
+  .page-ops > .card,
+  .page-ops > .ops-tier-primary,
+  .page-ops > .ops-tier-advanced,
+  .page-ops > .ops-ui-tier-banner{margin-top:0;margin-bottom:0}
   .view--fill .graph-wrap--rel{height:100%;min-height:280px;max-height:none}
   .page-ops .toolbar-stack{margin-bottom:0}
   .page-body{
@@ -535,8 +541,14 @@
     overflow:hidden;
   }
   .view--fill > .page-body{max-height:none}
-  .page-body--scroll{overflow:auto}
+  .page-body--scroll{
+    overflow:auto;display:flex;flex-direction:column;gap:var(--split-gap);
+  }
+  .page-body--scroll > .card{margin-top:0}
   .page-body--grid{display:flex;flex-direction:column;gap:var(--split-gap);flex:1;min-height:0}
+  .page-body--grid > .card,
+  .page-body--grid > .section-card,
+  .page-body--grid > .insight-card{margin-top:0;margin-bottom:0}
   .page-body--grid > .insight-grid{flex:1;min-height:0}
   .page-body--split{display:flex;flex-direction:column;overflow:hidden;flex:1;min-height:0}
   .view--fill > .rel-shell,
@@ -545,9 +557,17 @@
   .view--fill > .pg-shell,
   .page-body--split > .rel-shell,
   .page-body--split > .insight-shell{flex:1;min-height:0}
-  .page-body > .card{margin-top:0}
+  .page-body > .card{margin-top:0;margin-bottom:0}
+  .page-body > .section-card{margin-top:0;margin-bottom:0}
+  .view--fill > .card,
+  .view--fill > .section-card{margin-top:0;margin-bottom:0}
   .page-body .pager{flex-shrink:0}
   .view--fill .split-ops{flex-shrink:0;margin-bottom:0}
+  .view--fill #view-ask{display:flex;flex-direction:column;flex:1;min-height:0;overflow:hidden}
+  .view--fill #view-ask > .ask-shell{
+    flex:1;min-height:0;min-width:0;width:100%;
+    grid-template-rows:minmax(0,1fr);
+  }
   .view--fill .split-shell{
     flex:1;min-height:0;align-items:stretch;gap:var(--split-gap);
     grid-template-columns:minmax(240px,300px) minmax(0,1fr);
@@ -591,7 +611,7 @@
 
   .section-card{
     background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);
-    padding:18px 20px;margin-bottom:16px;box-shadow:var(--shadow-sm);
+    padding:18px 20px;margin:0;box-shadow:var(--shadow-sm);
   }
   .section-card--muted{background:rgba(255,255,255,.02);border-color:rgba(255,255,255,.04)}
   .section-head{
@@ -679,8 +699,8 @@
   .btn-ghost:hover{background:rgba(255,255,255,.08);color:var(--text);border-color:var(--border2)}
   .btn-sm{padding:6px 11px;font-size:12px;border-radius:var(--r-xs)}
   .spacer{flex:1}
-  .toolbar{display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap}
-  .toolbar-stack{display:flex;flex-direction:column;gap:10px;margin-bottom:16px}
+  .toolbar{display:flex;align-items:center;gap:8px;margin-bottom:0;flex-wrap:wrap}
+  .toolbar-stack{display:flex;flex-direction:column;gap:var(--split-gap);margin-bottom:0}
   .toolbar-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
   .toolbar-label{
     font-size:11px;font-weight:600;color:var(--muted);min-width:52px;letter-spacing:.04em;
@@ -699,7 +719,7 @@
   .hint{font-size:12px;color:var(--muted);margin-top:8px;line-height:1.5}
   .card{
     background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);
-    padding:18px 20px;margin-top:14px;box-shadow:var(--shadow-sm);
+    padding:18px 20px;margin:0;box-shadow:var(--shadow-sm);
     transition:border-color .2s var(--ease);
   }
   .card:hover{border-color:rgba(255,255,255,.08)}
@@ -771,23 +791,24 @@
   }
   .chat-msg-head{display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:600}
   .chat-msg-head .time{margin-left:auto;font-weight:400;text-transform:none;letter-spacing:0}
-  .resume-card{padding:14px 18px;margin-bottom:12px}
+  .resume-card{padding:18px 20px;margin:0}
   .resume-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
   .resume-title{font-weight:700;font-size:14px;color:var(--lime)}
   .resume-meta{font-size:12px;color:var(--muted);flex:1}
   .resume-actions{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
   .resume-actions .badge{cursor:default}
-  .resume-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+  .resume-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:var(--split-gap)}
   .resume-col-title{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;font-weight:600}
   .resume-list{font-size:12px;line-height:1.65;color:var(--text)}
   .resume-item{padding:4px 0;border-bottom:1px solid rgba(255,255,255,.04)}
   .resume-item:last-child{border-bottom:none}
   .resume-item .time{color:var(--muted);font-size:11px;margin-right:6px}
   .resume-empty{color:var(--muted);font-size:12px;padding:4px 0}
-  .ask-ops{padding:16px 18px;margin-bottom:14px}
-  .ask-ops .toolbar-stack{margin-bottom:0;gap:14px}
+  .ask-ops{padding:14px 16px;margin:0}
+  .ask-ops .toolbar-stack{margin-bottom:0;gap:var(--split-gap)}
   .ask-ops .toolbar-row{align-items:flex-start}
   .ask-ops .hint{margin:8px 0 0;font-size:12px}
+  .view--fill > .split-ops.section-card{margin-bottom:0}
   .ask-composer-wrap{flex:1;min-width:0}
   .ask-ops .composer-stack{
     border:none;padding:0;background:transparent;box-shadow:none;
@@ -795,34 +816,54 @@
   .ask-ops .composer-stack:focus-within{box-shadow:none;border-color:transparent}
   .ask-ops .composer-inline{margin-top:8px;padding-top:8px;border-top:1px solid var(--border)}
   .ask-shell{
-    display:grid;grid-template-columns:minmax(240px,300px) minmax(0,1fr);
-    gap:var(--split-gap);align-items:start;
+    display:grid;grid-template-columns:minmax(220px,280px) minmax(0,1fr);
+    gap:var(--split-gap);align-items:stretch;
+    flex:1;min-height:0;min-width:0;width:100%;overflow:hidden;
+    grid-template-rows:minmax(0,1fr);
   }
+  .ask-shell > .ask-sidebar,
+  .ask-shell > .ask-main{min-height:0;max-height:100%;align-self:stretch}
   @media(max-width:960px){
-    .ask-shell{grid-template-columns:1fr}
-    .view--fill .ask-sidebar,.view--fill .ask-detail-panel{height:auto;max-height:none}
+    .ask-shell{grid-template-columns:1fr;overflow:visible}
+    .view--fill .ask-sidebar,.view--fill .ask-detail-panel{height:auto;max-height:none;min-height:240px}
   }
-  .ask-sidebar{margin-top:0;padding:16px 18px;display:flex;flex-direction:column;min-height:320px;max-height:calc(100vh - 280px)}
-  .ask-sidebar .card-head{margin-bottom:8px}
+  .ask-sidebar{
+    margin-top:0;padding:14px 16px;display:flex;flex-direction:column;
+    min-height:0;height:100%;max-height:100%;overflow:hidden;
+  }
+  .ask-sidebar .card-head{margin-bottom:8px;flex-shrink:0}
   .ask-sidebar .empty{padding:28px 16px;font-size:12px}
-  .ask-sess-tools{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
-  .ask-main{display:flex;flex-direction:column;min-width:0}
-  .ask-detail-panel{margin-top:0;flex:1;display:flex;flex-direction:column;min-height:360px;max-height:calc(100vh - 280px);padding:16px 18px}
+  .ask-sess-tools{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;flex-shrink:0}
+  .ask-main{display:flex;flex-direction:column;min-width:0;min-height:0;height:100%}
+  .ask-detail-panel{
+    margin-top:0;flex:1;display:flex;flex-direction:column;
+    min-height:0;height:100%;max-height:100%;padding:14px 16px;overflow:hidden;
+  }
+  .ask-detail-panel > .card-head{flex-shrink:0}
   .ask-detail-head{
-    display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap;
+    display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap;flex-shrink:0;
   }
   .ask-detail-head[hidden]{display:none!important}
   .ask-session-title{flex:1;min-width:120px;font-size:13px;font-weight:600;color:var(--text2);line-height:1.45}
   .ask-detail-tools{display:flex;align-items:center;gap:8px;margin-left:auto;flex-wrap:wrap}
   .ask-empty{
-    flex:1;display:grid;place-items:center;text-align:center;padding:40px 24px;
+    flex:1;min-height:0;overflow:visible;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    text-align:center;padding:20px 16px;
     color:var(--muted);font-size:13px;line-height:1.6;
     border:1px dashed var(--border);border-radius:var(--r-sm);background:rgba(255,255,255,.02);
   }
+  .ask-empty .empty-state{
+    display:flex;flex-direction:column;align-items:center;gap:10px;
+    padding:4px 8px;max-width:100%;flex-shrink:0;
+  }
+  .ask-empty .ask-sample{margin:0}
+  .ask-empty .empty-state-title{margin-bottom:0}
+  .ask-empty .empty-state-secondary{margin-top:4px}
   .ask-empty-icon{font-size:32px;margin-bottom:8px;opacity:.45;line-height:1}
   .ask-detail-panel .chat-thread{
-    flex:1;min-height:200px;max-height:none;margin-bottom:0;
-    margin-top:0;padding-right:4px;
+    flex:1;min-height:0;max-height:none;margin-bottom:0;
+    margin-top:0;padding-right:4px;overflow:auto;
   }
   .ask-detail-panel .chat-thread[hidden]{display:none!important}
   .ask-detail-panel .ask-empty[hidden]{display:none!important}
@@ -862,7 +903,7 @@
   .ctx-meter.warn .ctx-pct{color:var(--amber)}
 
   /* ── Query hits ── */
-  .hits{display:flex;flex-direction:column;gap:10px;margin-top:14px}
+  .hits{display:flex;flex-direction:column;gap:var(--split-gap);margin:0}
   .hit{
     border-radius:var(--r);padding:14px 16px;border:1px solid var(--border);
     border-left-width:4px;transition:transform .18s var(--ease),box-shadow .18s;
@@ -888,8 +929,8 @@
   .usage-val{min-width:130px;text-align:right;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
 
   /* ── Summary ── */
-  .sum-ops{padding:16px 18px;margin-bottom:14px}
-  .sum-ops .toolbar-stack{margin-bottom:0;gap:14px}
+  .sum-ops{padding:16px 18px;margin:0}
+  .sum-ops .toolbar-stack{margin-bottom:0;gap:var(--split-gap)}
   .sum-ops .toolbar-row{align-items:center}
   .sum-ops .hint{margin:0;flex:1;min-width:160px;text-align:right}
   .sum-shell{
@@ -1074,7 +1115,7 @@
   }
 
   /* ── Timeline ── */
-  .timeline{margin-top:8px}
+  .timeline{margin-top:0}
   .tl-item{display:grid;grid-template-columns:110px 96px 1fr;gap:12px;padding:12px 0;border-bottom:1px solid var(--border);align-items:start}
   .tl-item:last-child{border:none}
   .tl-tags{display:flex;flex-direction:column;gap:4px;align-items:flex-start}
@@ -1185,11 +1226,20 @@
   }
   .insight-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--split-gap);margin-top:0}
   @media(max-width:900px){.insight-grid{grid-template-columns:1fr}}
-  .view--fill .insight-grid{flex:1;min-height:0;align-content:stretch}
-  .view--fill .insight-grid .card{display:flex;flex-direction:column;min-height:0;height:100%;margin-top:0}
-  .view--fill .insight-grid .panel-pre{flex:1;min-height:120px;max-height:none}
+  .view--fill .insight-grid{
+    flex:1;min-height:0;align-content:start;
+    grid-auto-rows:min-content;overflow:auto;
+  }
+  .view--fill .insight-grid .card{
+    display:flex;flex-direction:column;min-height:0;
+    height:auto;align-self:stretch;margin-top:0;
+  }
+  .view--fill .insight-grid .card.card--auto{height:auto;align-self:stretch;flex:none}
+  .view--fill .insight-grid .panel-pre{flex:0 1 auto;min-height:120px;max-height:none;overflow:auto}
   .view--fill .insight-grid .graph-wrap{flex:1;min-height:200px;height:auto}
-  .insight-grid .card{margin-top:0}
+  .insight-grid .card{margin-top:0;margin-bottom:0}
+  .insight-grid > .insight-card{margin:0}
+  .insight-grid > .section-card{margin:0}
   /* ── 洞察页：侧栏 + 工作区 ── */
   .insight-shell{
     display:grid;grid-template-columns:minmax(200px,240px) minmax(0,1fr);
@@ -1308,6 +1358,11 @@
   .ops-list{list-style:none;margin:0;padding:0;font-size:12px;line-height:1.45}
   .ops-list li{padding:5px 0;border-bottom:1px solid var(--border)}
   .ops-list li:last-child{border-bottom:none}
+  .ops-list-hint{padding:8px 0;border-bottom:none;color:var(--muted)}
+  .ops-module-item{padding:10px 0}
+  .ops-module-item strong{display:block;margin-bottom:4px;font-size:13px;color:var(--text2)}
+  .ops-module-links{margin-top:6px;font-size:11.5px;line-height:1.5}
+  .ops-module-links--docs{margin-top:4px;color:var(--muted)}
   .ops-agent{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:4px 0;font-size:11.5px}
   .ops-tag{font-size:10px;padding:1px 6px;border-radius:999px;border:1px solid var(--border);white-space:nowrap}
   .ops-tag.ok{color:var(--mint);border-color:rgba(126,224,168,.35)}
@@ -1523,7 +1578,9 @@
   .topbar-focus label{font-size:11px;color:var(--muted);white-space:nowrap}
   .topbar-focus .field-select{max-width:160px;font-size:12px}
   .page-tabs{
-    display:flex;gap:6px;flex-wrap:wrap;padding:0 var(--split-pad) 8px;flex-shrink:0;
+    display:flex;gap:6px;flex-wrap:wrap;align-items:center;
+    padding:0 0 10px;margin:0 0 var(--split-gap);flex-shrink:0;
+    border-bottom:1px solid var(--border);
   }
   .page-tabs[hidden]{display:none!important}
   .page-tab{
@@ -1538,6 +1595,7 @@
   .mode-seg-btn.active{background:rgba(110,168,254,.15);color:var(--blue);font-weight:600}
   .ask-advanced[hidden]{display:none!important}
   .ask-cite-out{flex:1;min-height:0;overflow:auto;margin-top:var(--split-gap)}
+  .ask-cite-out[hidden]{display:none!important}
   .today-quick{display:flex;flex-wrap:wrap;gap:8px}
   .today-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:var(--split-gap);flex:1;min-height:0}
   .today-alert{display:flex;align-items:center;gap:10px;padding:10px 14px;font-size:13px}
@@ -1554,10 +1612,10 @@
   .empty-state-icon{font-size:36px;margin-bottom:10px;opacity:.5}
   .empty-state-title{color:var(--muted);font-size:13px;margin-bottom:12px;line-height:1.5}
   .empty-state-secondary{margin-top:10px;font-size:12px}
-  .ops-tier-primary,.ops-tier-advanced{margin-bottom:var(--split-gap)}
+  .ops-tier-primary,.ops-tier-advanced{margin:0}
   .ops-tier-advanced[hidden]{display:none!important}
   .ops-tier-head{font-size:12px;font-weight:600;color:var(--text2);margin-bottom:8px}
-  .ops-ui-tier-banner{margin-bottom:var(--split-gap);border:1px solid rgba(120,180,255,.22);background:rgba(120,180,255,.04)}
+  .ops-ui-tier-banner{margin:0;border:1px solid rgba(120,180,255,.22);background:rgba(120,180,255,.04)}
   .ops-ui-tier-banner .card-head{color:var(--blue)}
   .sidebar-tier-switch{
     width:100%;margin:0 2px 8px;padding:7px 10px;border-radius:8px;border:1px dashed rgba(120,180,255,.35);
@@ -1735,9 +1793,9 @@
         <div class="badge-ticker-dots" id="badgeTickerDots"></div>
       </div>
     </header>
-    <div class="page-tabs" id="pageTabs" hidden role="tablist" aria-label="子页面"></div>
 
     <div class="content">
+      <div class="page-tabs" id="pageTabs" hidden role="tablist" aria-label="子页面"></div>
       <!-- TODAY -->
       <section class="view view--fill" id="view-today">
         <div class="page-ops">
@@ -1750,7 +1808,8 @@
           </div>
         </div>
         <div class="page-body page-body--grid">
-          <div class="section-card resume-card" id="todayResumeCard">
+          <div class="insight-grid">
+          <div class="section-card resume-card" id="todayResumeCard" style="grid-column:1/-1">
             <div class="resume-head">
               <span class="resume-title">接着干</span>
               <span class="resume-meta" id="todayResumeMeta">加载中…</span>
@@ -1779,6 +1838,7 @@
             <div class="card-head">今日摘要</div>
             <pre class="panel-pre" id="todayDigest" style="white-space:pre-wrap;font-size:13px;line-height:1.55">加载中…</pre>
           </div>
+          </div>
         </div>
       </section>
 
@@ -1799,7 +1859,7 @@
               <span class="toolbar-label">提问</span>
               <div class="ask-composer-wrap">
                 <div class="composer composer-stack">
-                  <textarea id="askInput" rows="3" placeholder="问点什么…（Enter 发送，Shift+Enter 换行）"></textarea>
+                  <textarea id="askInput" rows="2" placeholder="问点什么…（Enter 发送，Shift+Enter 换行）"></textarea>
                   <div class="composer-inline">
                     <select id="askProject" class="field-select" title="限定项目"></select>
                     <button type="button" class="btn btn-primary" id="askBtn">提问 ↵</button>
@@ -2408,6 +2468,7 @@
 
       <section class="view view--fill" id="view-acceptance">
         <div class="page-body page-body--grid">
+          <div class="insight-grid">
           <div class="insight-card">
             <div class="insight-card-head">设计者验收 <span class="hint">改完功能后三步收束</span></div>
             <div class="insight-toolbar insight-toolbar--sub" style="margin:0 0 8px">
@@ -2426,6 +2487,7 @@
               <button type="button" class="btn btn-sm ui-tier-btn" data-tier="daily">日常</button>
               <button type="button" class="btn btn-sm ui-tier-btn" data-tier="full">完整</button>
             </div>
+          </div>
           </div>
         </div>
       </section>
@@ -2499,12 +2561,12 @@
             <div id="opsScheduleAgents" class="ops-schedule-list"></div>
             <pre class="panel-pre panel-pre--tall" id="opsScheduleOut"></pre>
           </div>
-          <div class="card" style="grid-column:1/-1">
+          <div class="card card--auto" style="grid-column:1/-1">
             <div class="card-head">模块地图 · 改哪里</div>
             <div class="hint" style="margin-bottom:10px">问行为找 collectors、问检索找 query、问运维找 ops_panel。链到 <a href="#" class="tl-link" id="opsModuleShortfallLink">短板修复</a> 与检索升级计划。</div>
-            <div id="opsModuleMap" class="ops-list"><div class="hint">加载中…</div></div>
+            <ul id="opsModuleMap" class="ops-list"><li class="ops-list-hint">加载中…</li></ul>
           </div>
-          <div class="card" style="grid-column:1/-1">
+          <div class="card card--auto" style="grid-column:1/-1">
             <div class="card-head">散落项目（就地索引，不移动文件）</div>
             <div id="opsImportList" class="ops-list"><div class="hint">点击「扫描散落项目」发现 ~/Desktop 等目录下的仓库。</div></div>
           </div>
@@ -6395,12 +6457,12 @@ function renderOpsModuleMap(data){
   const box=$('#opsModuleMap');
   if(!box||!data) return;
   const areas=data.areas||[];
-  if(!areas.length){box.innerHTML='<div class="hint">暂无</div>';return;}
+  if(!areas.length){box.innerHTML='<li class="ops-list-hint">暂无</li>';return;}
   box.innerHTML=areas.map(a=>{
     const lines=(a.lines||[]).map(l=>`<div class="ops-path">${esc(l)}</div>`).join('');
     const files=(a.files||[]).map(f=>`<a href="#" class="tl-link" data-path="${esc(f.path)}">${esc(f.label)}</a>`).join(' · ');
     const docs=(a.docs||[]).map(d=>`<a href="#" class="tl-link" data-path="${esc(d.path)}">${esc(d.label)}</a>`).join(' · ');
-    return `<li style="padding:10px 0"><strong>${esc(a.title)}</strong>${lines}<div style="margin-top:6px">主文件：${files||'—'}</div>${docs?`<div style="margin-top:4px">文档：${docs}</div>`:''}</li>`;
+    return `<li class="ops-module-item"><strong>${esc(a.title)}</strong>${lines}<div class="ops-module-links">主文件：${files||'—'}</div>${docs?`<div class="ops-module-links ops-module-links--docs">文档：${docs}</div>`:''}</li>`;
   }).join('');
   const sf=$('#opsModuleShortfallLink');
   if(sf&&data.shortfall_doc) sf.dataset.path=data.shortfall_doc;
@@ -6411,7 +6473,7 @@ async function loadModuleMap(){
     renderOpsModuleMap(data);
   }catch(e){
     const box=$('#opsModuleMap');
-    if(box) box.innerHTML='<div class="hint">模块地图加载失败：'+esc(e.message)+'</div>';
+    if(box) box.innerHTML='<li class="ops-list-hint" style="color:var(--rose)">模块地图加载失败：'+esc(e.message)+'</li>';
   }
 }
 async function opsTrackerPause(resume){
@@ -7165,7 +7227,7 @@ async function ensureBootOnline(){
 $('#bootRetryBtn')?.addEventListener('click',()=>location.reload());
 tlInitSort();
 </script>
-<script src="/assets/js/qr-nav.js?v=20260701b"></script>
+<script src="/assets/js/qr-nav.js?v=20260701c"></script>
 <script>
 ensureBootOnline().then(async ok=>{
   if(!ok) return;

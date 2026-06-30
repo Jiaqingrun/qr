@@ -33,6 +33,18 @@ class TestStandardsChangelog(unittest.TestCase):
         diff = standards_changelog.diff_text("old rule", "new rule")
         self.assertTrue(standards_changelog.has_substantive_change(diff))
 
+    def test_diff_one_line_to_many_no_recursion(self) -> None:
+        old = "\n".join(["prefix"] + ["same"] * 54 + ["- old bullet"])
+        new = "\n".join(["prefix"] + ["same"] * 54 + ["- new a", "- new b", "- new c"])
+        diff = standards_changelog.diff_text(old, new)
+        self.assertIn("- old bullet", diff["deleted"])
+        self.assertIn("- new a", diff["added"])
+
+    def test_build_changelog_no_crash(self) -> None:
+        out = standards_changelog.build_changelog()
+        self.assertIn("changes", out)
+        self.assertIn("version_count", out)
+
 
 if __name__ == "__main__":
     unittest.main()

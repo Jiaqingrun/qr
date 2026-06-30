@@ -32,9 +32,19 @@ def _append_line_diff(
     new_chunk: list[str],
     added: list[str],
     deleted: list[str],
+    *,
+    _depth: int = 0,
 ) -> None:
     """将 replace 区块拆成逐行增删，避免整块「修改」误报。"""
     if _block_norm(old_chunk) == _block_norm(new_chunk):
+        return
+    if _depth >= 64:
+        for ln in old_chunk:
+            if _meaningful(ln):
+                deleted.append(ln)
+        for ln in new_chunk:
+            if _meaningful(ln):
+                added.append(ln)
         return
     sm = difflib.SequenceMatcher(None, old_chunk, new_chunk, autojunk=False)
     for tag, i1, i2, j1, j2 in sm.get_opcodes():
@@ -58,8 +68,23 @@ def _append_line_diff(
                 for ln in n_sub:
                     if _meaningful(ln):
                         added.append(ln)
+            elif len(o_sub) > 2 and len(n_sub) > 2:
+                if o_sub == old_chunk and n_sub == new_chunk:
+                    for ln in o_sub:
+                        if _meaningful(ln):
+                            deleted.append(ln)
+                    for ln in n_sub:
+                        if _meaningful(ln):
+                            added.append(ln)
+                else:
+                    _append_line_diff(o_sub, n_sub, added, deleted, _depth=_depth + 1)
             else:
-                _append_line_diff(o_sub, n_sub, added, deleted)
+                for ln in o_sub:
+                    if _meaningful(ln):
+                        deleted.append(ln)
+                for ln in n_sub:
+                    if _meaningful(ln):
+                        added.append(ln)
 
 
 def diff_text(old: str, new: str) -> dict[str, Any]:

@@ -116,10 +116,6 @@
     const navSimple = $('#navSimple');
     if (navFull) navFull.hidden = uiTier !== 'full';
     if (navSimple) navSimple.hidden = uiTier === 'full';
-    const statsFull = $('#sidebarStats');
-    const statsSimple = $('#sidebarHealthSimple');
-    if (statsFull) statsFull.hidden = uiTier !== 'full';
-    if (statsSimple) statsSimple.hidden = uiTier === 'full';
     const tierBanner = $('#opsUiTierBanner');
     if (tierBanner) tierBanner.hidden = uiTier !== 'full';
     const tierSwitch = $('#sidebarTierSwitch');
