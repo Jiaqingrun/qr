@@ -470,6 +470,46 @@ def diagnose(conn: sqlite3.Connection | None = None) -> dict:
                 f"Cursor 工作区对齐正常（{len(cursor_ws['aligned'])} 个项目）"
             )
 
+        from . import project_normalize
+
+        label_audit = project_normalize.audit_project_labels(conn, cfg=cfg)
+        frag = int(label_audit.get("fragmented_documents") or 0)
+        legacy_n = sum(int(x.get("count") or 0) for x in label_audit.get("legacy_remaining") or [])
+        empty_cur = int(label_audit.get("empty_cursor_events") or 0)
+        if frag or legacy_n:
+            parts = []
+            if frag:
+                parts.append(f"索引子目录误标 {frag} 篇")
+            if legacy_n:
+                parts.append(f"legacy 别名残留 {legacy_n} 条")
+            issues.append({
+                "area": "project_labels",
+                "level": "warn",
+                "message": "项目标签噪声：" + " · ".join(parts),
+                "fix": "qr project-normalize --dry-run 预览后执行 qr project-normalize",
+            })
+        elif empty_cur:
+            slugs = label_audit.get("empty_cursor_by_slug") or {}
+            ew = int(slugs.get("empty-window") or 0)
+            other = empty_cur - ew
+            if other:
+                issues.append({
+                    "area": "project_labels",
+                    "level": "info",
+                    "message": (
+                        f"Cursor 空 project {empty_cur} 条"
+                        f"（empty-window {ew} · 未映射工作区 {other}）"
+                    ),
+                    "fix": "qr workspace sync-cursor-roots；qr project-normalize；"
+                    "已删项目可在 config cursor_roots 手动映射",
+                })
+            else:
+                ok_items.append(
+                    f"索引 project 标签已对齐（Cursor 空标签 {empty_cur} 条均为无工作区窗口）"
+                )
+        else:
+            ok_items.append("索引 project 标签已对齐")
+
         return {
             "ok": not any(i["level"] == "error" for i in issues),
             "issues": issues,

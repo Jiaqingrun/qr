@@ -82,9 +82,40 @@ def slug_name(name: str) -> str:
     return s or "project"
 
 
+def resolve_project_id_for_path(
+    path: Path,
+    cfg: dict[str, Any] | None = None,
+    *,
+    root: Path | None = None,
+) -> str | None:
+    """匹配 ~/QR 下已注册项目目录（最长前缀），避免子目录被误标为独立 project。"""
+    cfg = cfg or config.load_config()
+    root = root or workspace_root(cfg)
+    try:
+        resolved = path.resolve()
+        resolved.relative_to(root.resolve())
+    except (ValueError, OSError):
+        return None
+    best: str | None = None
+    best_len = -1
+    for cat in categories(cfg):
+        for pid, proj_dir in iter_category_project_dirs(root, cat):
+            try:
+                resolved.relative_to(proj_dir.resolve())
+            except (ValueError, OSError):
+                continue
+            if len(pid) > best_len:
+                best_len = len(pid)
+                best = pid
+    return best
+
+
 def project_from_path(path: Path, root: Path | None = None) -> str:
     """从绝对路径解析 project_id（category/name）。"""
     root = root or workspace_root()
+    matched = resolve_project_id_for_path(path, root=root)
+    if matched:
+        return matched
     try:
         rel = path.resolve().relative_to(root.resolve())
     except ValueError:
@@ -92,12 +123,33 @@ def project_from_path(path: Path, root: Path | None = None) -> str:
     if not rel.parts:
         return root.name
     if len(rel.parts) >= 2:
-        if path.is_file() and len(rel.parts) > 2:
-            name = "/".join(rel.parts[1:-1])
-        else:
-            name = "/".join(rel.parts[1:])
-        return project_id(rel.parts[0], name)
+        return project_id(rel.parts[0], rel.parts[1])
     return slug_name(rel.parts[0])
+
+
+def index_project_for_path(
+    path: str | Path,
+    stored: str | None = None,
+    cfg: dict[str, Any] | None = None,
+) -> str:
+    """索引/迁移用 project：优先路径解析，其次 legacy 别名与已注册 ID。"""
+    cfg = cfg or config.load_config()
+    p = Path(path)
+    resolved = resolve_project_id_for_path(p, cfg=cfg)
+    if resolved:
+        return resolved
+    stored_s = (stored or "").strip()
+    if stored_s.startswith("cursor-"):
+        inner = stored_s[len("cursor-") :]
+        inner_canon = canonical_project_id(inner, cfg) or inner
+        if inner_canon and is_listable_project_id(inner_canon, cfg):
+            return inner_canon
+    canon = canonical_project_id(stored, cfg)
+    if canon and is_listable_project_id(canon, cfg):
+        return canon
+    if stored_s:
+        return stored_s
+    return retrieval_fallback_project(p)
 
 
 def retrieval_fallback_project(path: Path) -> str:

@@ -546,6 +546,7 @@
     await loadTopFocusBar();
     const lv = landingView || 'ask';
     if (typeof g.switchView === 'function') g.switchView(lv);
+    if (typeof g.loadChats === 'function') g.loadChats();
     await maybeShowOnboarding(ui);
   }
 

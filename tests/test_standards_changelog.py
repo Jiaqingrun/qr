@@ -33,6 +33,21 @@ class TestStandardsChangelog(unittest.TestCase):
         diff = standards_changelog.diff_text("old rule", "new rule")
         self.assertTrue(standards_changelog.has_substantive_change(diff))
 
+    def test_diff_large_replace_no_recursion(self) -> None:
+        """v15→v16 等大段改写曾触发 _append_line_diff 无限递归。"""
+        old_lines = [f"- 旧条目 {i}" for i in range(80)]
+        new_lines = [f"- 新条目 {i}" for i in range(80)]
+        diff = standards_changelog.diff_text("\n".join(old_lines), "\n".join(new_lines))
+        self.assertTrue(standards_changelog.has_substantive_change(diff))
+
+    def test_build_changelog_live_db(self) -> None:
+        from qr import governance
+
+        governance.ensure_standards()
+        payload = standards_changelog.build_changelog(prune_identical=False)
+        self.assertIn("changes", payload)
+        self.assertGreaterEqual(payload["version_count"], 2)
+
 
 if __name__ == "__main__":
     unittest.main()

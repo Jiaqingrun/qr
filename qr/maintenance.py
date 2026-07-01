@@ -55,6 +55,12 @@ def run_full_maintenance(*, fix: bool = True) -> dict[str, Any]:
     if fix:
         health.invalidate_status_cache()
         report["steps"]["workspace_prune"] = prune_junk_projects()
+        from . import project_normalize
+
+        with db.session() as conn:
+            report["steps"]["project_normalize"] = project_normalize.run_full_normalize(
+                conn, dry_run=False,
+            )
         report["steps"]["governance"] = {
             "noise_removed": governance.prune_noise_versions(),
             "redundant": governance.prune_redundant_versions(),

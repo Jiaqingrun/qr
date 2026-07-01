@@ -399,6 +399,7 @@
     padding:24px;background:var(--bg0);color:var(--text);
   }
   .boot-offline[hidden]{display:none!important;pointer-events:none!important;visibility:hidden!important}
+  [hidden]{display:none!important}
   .boot-offline-card{
     width:min(420px,100%);padding:22px 24px;border-radius:var(--r);
     border:1px solid var(--border2);background:var(--surface);box-shadow:var(--shadow-lg);
@@ -552,6 +553,7 @@
     flex:1;min-height:0;align-items:stretch;gap:var(--split-gap);
     grid-template-columns:minmax(240px,300px) minmax(0,1fr);
   }
+  .view--fill .ask-shell{align-items:stretch}
   .view--fill .rel-shell{
     flex:1;min-height:0;align-items:stretch;
   }
@@ -796,33 +798,47 @@
   .ask-ops .composer-inline{margin-top:8px;padding-top:8px;border-top:1px solid var(--border)}
   .ask-shell{
     display:grid;grid-template-columns:minmax(240px,300px) minmax(0,1fr);
-    gap:var(--split-gap);align-items:start;
+    gap:var(--split-gap);align-items:stretch;
   }
   @media(max-width:960px){
-    .ask-shell{grid-template-columns:1fr}
+    .ask-shell{grid-template-columns:1fr;align-items:start}
     .view--fill .ask-sidebar,.view--fill .ask-detail-panel{height:auto;max-height:none}
   }
-  .ask-sidebar{margin-top:0;padding:16px 18px;display:flex;flex-direction:column;min-height:320px;max-height:calc(100vh - 280px)}
+  .ask-sidebar{margin-top:0;padding:16px 18px;display:flex;flex-direction:column;min-height:0}
+  .view--fill .ask-sidebar,
+  .view--fill .ask-detail-panel{min-height:0;max-height:none;height:100%}
   .ask-sidebar .card-head{margin-bottom:8px}
   .ask-sidebar .empty{padding:28px 16px;font-size:12px}
   .ask-sess-tools{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
-  .ask-main{display:flex;flex-direction:column;min-width:0}
-  .ask-detail-panel{margin-top:0;flex:1;display:flex;flex-direction:column;min-height:360px;max-height:calc(100vh - 280px);padding:16px 18px}
+  .ask-main{display:flex;flex-direction:column;min-width:0;min-height:0}
+  .ask-detail-panel{
+    margin-top:0;flex:1;display:flex;flex-direction:column;min-height:0;
+    padding:16px 18px;overflow:hidden;
+  }
+  .ask-detail-panel > .card-head{flex-shrink:0;margin-bottom:8px}
   .ask-detail-head{
-    display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap;
+    display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap;flex-shrink:0;
   }
   .ask-detail-head[hidden]{display:none!important}
   .ask-session-title{flex:1;min-width:120px;font-size:13px;font-weight:600;color:var(--text2);line-height:1.45}
   .ask-detail-tools{display:flex;align-items:center;gap:8px;margin-left:auto;flex-wrap:wrap}
   .ask-empty{
-    flex:1;display:grid;place-items:center;text-align:center;padding:40px 24px;
-    color:var(--muted);font-size:13px;line-height:1.6;
+    flex:1;min-height:0;overflow:auto;
+    display:flex;align-items:center;justify-content:center;text-align:center;
+    padding:12px 16px;color:var(--muted);font-size:13px;line-height:1.6;
     border:1px dashed var(--border);border-radius:var(--r-sm);background:rgba(255,255,255,.02);
   }
+  .ask-empty .empty-state{
+    padding:0;display:flex;flex-direction:column;align-items:center;gap:10px;width:100%;max-width:420px;
+  }
+  .ask-empty .empty-state-icon{margin-bottom:0}
+  .ask-empty .empty-state-title{margin-bottom:0}
+  .ask-empty .empty-state-secondary{margin-top:0}
+  .ask-empty .ask-sample{margin:0}
   .ask-empty-icon{font-size:32px;margin-bottom:8px;opacity:.45;line-height:1}
   .ask-detail-panel .chat-thread{
-    flex:1;min-height:200px;max-height:none;margin-bottom:0;
-    margin-top:0;padding-right:4px;
+    flex:1;min-height:0;max-height:none;margin-bottom:0;
+    margin-top:0;padding-right:4px;overflow:auto;
   }
   .ask-detail-panel .chat-thread[hidden]{display:none!important}
   .ask-detail-panel .ask-empty[hidden]{display:none!important}
@@ -1319,6 +1335,17 @@
   .ops-schedule-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 8px;border:1px solid var(--border);border-radius:8px;font-size:11.5px;line-height:1.35}
   .ops-schedule-row .ops-schedule-meta{color:var(--muted);font-size:10px;margin-top:2px}
   .ops-schedule-row .btn{padding:2px 8px;font-size:10px}
+  .ops-schedule-card > .card-head{flex-shrink:0}
+  .ops-schedule-body{
+    flex:1;min-height:0;display:flex;flex-direction:column;gap:8px;overflow:hidden;
+  }
+  .ops-schedule-body #opsTrackerStatus{flex-shrink:0;margin:0}
+  .ops-schedule-card .ops-schedule-list{
+    flex:1;min-height:0;overflow:auto;margin-bottom:0;padding-right:2px;
+  }
+  .ops-schedule-card .panel-pre{
+    flex:0 1 auto;min-height:72px;max-height:min(140px,22vh);overflow:auto;margin:0;
+  }
   .ops-path{color:var(--muted);font-size:10.5px;word-break:break-all}
   .similar-hint{
     font-size:12px;color:var(--amber);margin:0 0 10px;padding:10px 14px;border-radius:var(--r-sm);
@@ -1537,7 +1564,8 @@
   }
   .mode-seg-btn.active{background:rgba(110,168,254,.15);color:var(--blue);font-weight:600}
   .ask-advanced[hidden]{display:none!important}
-  .ask-cite-out{flex:1;min-height:0;overflow:auto;margin-top:var(--split-gap)}
+  .ask-cite-out{flex:1;min-height:0;overflow:auto;margin-top:0}
+  .ask-cite-out[hidden]{display:none!important}
   .today-quick{display:flex;flex-wrap:wrap;gap:8px}
   .today-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:var(--split-gap);flex:1;min-height:0}
   .today-alert{display:flex;align-items:center;gap:10px;padding:10px 14px;font-size:13px}
@@ -1553,10 +1581,32 @@
   .empty-state{text-align:center;padding:32px 20px}
   .empty-state-icon{font-size:36px;margin-bottom:10px;opacity:.5}
   .empty-state-title{color:var(--muted);font-size:13px;margin-bottom:12px;line-height:1.5}
+  .empty-state-actions{display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
   .empty-state-secondary{margin-top:10px;font-size:12px}
   .ops-tier-primary,.ops-tier-advanced{margin-bottom:var(--split-gap)}
   .ops-tier-advanced[hidden]{display:none!important}
   .ops-tier-head{font-size:12px;font-weight:600;color:var(--text2);margin-bottom:8px}
+  /* 运维页：高级区限高 + 下方卡片区在 page-body 内滚动，避免撑破视口 */
+  #view-ops.view--fill.active{overflow:hidden}
+  #view-ops .page-ops{flex-shrink:0}
+  #view-ops .ops-tier-advanced{
+    max-height:min(220px,30vh);overflow-y:auto;padding-right:2px;
+  }
+  #view-ops .page-body.page-body--grid{
+    flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;
+  }
+  #view-ops .page-body.page-body--grid > .insight-grid{
+    flex:none;min-height:auto;align-content:start;
+  }
+  #view-ops .page-body.page-body--grid > .insight-grid .card{
+    height:auto;min-height:0;
+  }
+  #view-ops .page-body.page-body--grid > .insight-grid .card:first-child .panel-pre{
+    max-height:min(280px,36vh);overflow-y:auto;flex:none;
+  }
+  #view-ops .ops-schedule-card{
+    min-height:260px;max-height:min(380px,46vh);
+  }
   .ops-ui-tier-banner{margin-bottom:var(--split-gap);border:1px solid rgba(120,180,255,.22);background:rgba(120,180,255,.04)}
   .ops-ui-tier-banner .card-head{color:var(--blue)}
   .sidebar-tier-switch{
@@ -1884,9 +1934,11 @@
                 <div class="empty-state">
                   <div class="empty-state-icon">💬</div>
                   <div class="empty-state-title">向自己的代码提问，或试试：</div>
-                  <button type="button" class="btn btn-ghost btn-sm ask-sample" data-q="这个项目的入口在哪？">入口在哪？</button>
-                  <button type="button" class="btn btn-ghost btn-sm ask-sample" data-q="有哪些 API 路由？">有哪些 API？</button>
-                  <button type="button" class="btn btn-ghost btn-sm ask-sample" data-q="数据库 schema 在哪？">数据库 schema？</button>
+                  <div class="empty-state-actions">
+                    <button type="button" class="btn btn-ghost btn-sm ask-sample" data-q="这个项目的入口在哪？">入口在哪？</button>
+                    <button type="button" class="btn btn-ghost btn-sm ask-sample" data-q="有哪些 API 路由？">有哪些 API？</button>
+                    <button type="button" class="btn btn-ghost btn-sm ask-sample" data-q="数据库 schema 在哪？">数据库 schema？</button>
+                  </div>
                   <div class="empty-state-secondary"><a href="#" class="tl-link" id="askEmptySyncLink">去设置 · 一键同步索引</a></div>
                 </div>
               </div>
@@ -2493,11 +2545,13 @@
             <pre class="panel-pre" id="opsDoctorOut">加载中…</pre>
             <pre class="panel-pre" id="opsCursorAlignOut" style="display:none;margin-top:8px;font-size:12px"></pre>
           </div>
-          <div class="card">
+          <div class="card ops-schedule-card">
             <div class="card-head">定时任务 · 备份 · 配置</div>
-            <div id="opsTrackerStatus" class="hint" style="margin-bottom:8px"></div>
-            <div id="opsScheduleAgents" class="ops-schedule-list"></div>
-            <pre class="panel-pre panel-pre--tall" id="opsScheduleOut"></pre>
+            <div class="ops-schedule-body">
+              <div id="opsTrackerStatus" class="hint"></div>
+              <div id="opsScheduleAgents" class="ops-schedule-list"></div>
+              <pre class="panel-pre" id="opsScheduleOut"></pre>
+            </div>
           </div>
           <div class="card" style="grid-column:1/-1">
             <div class="card-head">模块地图 · 改哪里</div>
@@ -4159,6 +4213,8 @@ async function loadResumePanel(){
 $('#resumeRefreshBtn')?.addEventListener('click',()=>loadResumePanel());
 
 async function loadStats(){
+  rebuildBadgeItems();
+  renderBadgeTicker();
   renderStatusPillars({pillars:[]});
   try{
     const s=await api('/api/status');
@@ -4172,6 +4228,8 @@ async function loadStats(){
     navSubState.byView=buildNavSubLines(s);
     renderNavSubs();
     badgeTickerState.status=s;
+    rebuildBadgeItems();
+    renderBadgeTicker();
     scheduleProjectFocusFetch();
     loadAiPower();
   }catch(e){
@@ -4855,7 +4913,7 @@ function evRow(e,opts={}){
     :'';
   let cpHtml='';
   if(e.show_checkpoint_btn&&e.session_id){
-    cpHtml=`<div class="tl-checkpoint-bar"><span>长会话 · ${e.session_turns||'?'} 轮</span><button type="button" class="btn btn-ghost btn-sm tl-cp-btn" data-sid="${esc(e.session_id)}">生成 checkpoint</button></div>`;
+    cpHtml=`<div class="tl-checkpoint-bar"><span>长会话 · ${e.session_turns||'?'} 轮</span><button type="button" class="btn btn-ghost btn-sm tl-cp-btn" data-sid="${esc(e.session_id)}">生成 checkpoint</button><button type="button" class="btn btn-ghost btn-sm tl-decision-draft-btn" data-sid="${esc(e.session_id)}">决策草稿</button></div>`;
   }else if(e.checkpoint_uid){
     cpHtml=`<div class="tl-checkpoint-done">已有 checkpoint</div>`;
   }
@@ -5057,6 +5115,28 @@ $('#tlOut')?.addEventListener('click',async ev=>{
       alert(err.message||'生成失败');
       cpBtn.disabled=false;
       cpBtn.textContent='生成 checkpoint';
+    }
+    return;
+  }
+  const draftBtn=ev.target.closest('.tl-decision-draft-btn');
+  if(draftBtn){
+    ev.preventDefault();
+    const sid=draftBtn.dataset.sid;
+    if(!sid||draftBtn.disabled) return;
+    draftBtn.disabled=true;
+    draftBtn.textContent='生成中…';
+    try{
+      const r=await api('/api/decision/draft',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({session:sid,use_llm:true})});
+      const input=$('#noteInput');
+      if(input) input.value=r.text||'';
+      switchView('timeline');
+      input?.focus();
+      alert(r.llm_used?'LLM 决策草稿已生成，请核对后保存为决策。':'决策草稿已生成，请编辑后保存为决策。');
+    }catch(err){
+      alert(err.message||'生成失败');
+    }finally{
+      draftBtn.disabled=false;
+      draftBtn.textContent='决策草稿';
     }
     return;
   }
@@ -6666,6 +6746,7 @@ async function uninstallOpsSchedule(label, title){
     'com.qr.web':'卸载后 Web 后台将停止，需手动运行 qr web 或重新安装任务。',
     'com.qr.web-watch':'卸载后将不再自动探测/重启 Web 服务。',
     'com.qr.eval':'卸载后不再每月自动运行 qr eval run。',
+    'com.qr.eval-usage':'卸载后不再每月自动运行 qr review monthly。',
   };
   const extra=hints[label]?`\n\n${hints[label]}`:'';
   if(!confirm(`卸载定时任务「${title}」？\n${label}${extra}`)) return;
@@ -6732,7 +6813,9 @@ $('#opsGoAcceptanceBtn')?.addEventListener('click',()=>goAcceptanceView(false));
 $('#opsUiTierBtn')?.addEventListener('click',()=>goAcceptanceView(false));
 $('#opsAdvancedToggle')?.addEventListener('click',()=>{
   const el=$('#opsAdvanced');
+  const btn=$('#opsAdvancedToggle');
   if(el) el.hidden=!el.hidden;
+  if(btn) btn.textContent=el&&!el.hidden?'高级选项 ▴':'高级选项 ▾';
 });
 $('#opsCursorAlignBtn')?.addEventListener('click',async()=>{
   const el=$('#opsCursorAlignOut');
@@ -7165,12 +7248,16 @@ async function ensureBootOnline(){
 $('#bootRetryBtn')?.addEventListener('click',()=>location.reload());
 tlInitSort();
 </script>
-<script src="/assets/js/qr-nav.js?v=20260701b"></script>
+<script src="/assets/js/qr-nav.js?v=20260701c"></script>
 <script>
 ensureBootOnline().then(async ok=>{
   if(!ok) return;
   loadAiPower();
-  loadStats();loadProjects();loadAskModels();
+  await Promise.all([
+    loadStats(),
+    loadProjects(),
+    loadAskModels(),
+  ]);
   graphBindZoom($('#graphSvg'));
   graphBindZoom($('#relGraphSvg'));
   initBrandMotion();

@@ -44,6 +44,34 @@ class ProjectNormalizeTests(unittest.TestCase):
                 config.QR_HOME = old_home
                 config.DB_PATH = old_db
 
+    def test_project_from_path_uses_registered_root(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "QR"
+            proj = root / "dev" / "qr"
+            nested = proj / "qr"
+            nested.mkdir(parents=True)
+            (proj / "README.md").write_text("# qr\n", encoding="utf-8")
+            (proj / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+            (nested / "cli.py").write_text("print('hi')\n", encoding="utf-8")
+            pid = workspace.project_from_path(nested / "cli.py", root)
+            self.assertEqual(pid, "dev/qr")
+
+    def test_index_project_for_path_nested_file(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "QR"
+            proj = root / "dev" / "demo"
+            proj.mkdir(parents=True)
+            (proj / "README.md").write_text("# demo\n", encoding="utf-8")
+            (proj / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+            doc_path = proj / "src" / "main.py"
+            doc_path.parent.mkdir(parents=True)
+            doc_path.write_text("x=1\n", encoding="utf-8")
+            cfg = {"workspace_root": str(root)}
+            self.assertEqual(
+                workspace.index_project_for_path(doc_path, "dev/demo/src", cfg),
+                "dev/demo",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1292,12 +1292,16 @@ def cursor_retag_cmd(
 def project_normalize_cmd(
     dry_run: bool = typer.Option(False, "--dry-run", help="仅预览，不写库"),
     project: str = typer.Option("", "--project", help="仅迁移指定 legacy/canonical 项目"),
+    legacy_only: bool = typer.Option(
+        False, "--legacy-only", help="仅迁移 LEGACY_PROJECT_ALIASES",
+    ),
 ):
-    """将历史 project（qr/sports/cursor-qr）归一化为 dev/qr、dev/sports/project-sports。"""
+    """归一化 project 标签：legacy 别名、索引子目录误标、Cursor 空标签补全。"""
     from . import project_normalize
 
     db.init_db()
     with db.session() as conn:
+        audit = project_normalize.audit_project_labels(conn)
         if dry_run:
             prev = project_normalize.preview_legacy_projects(conn)
             t = Table(title="Legacy project 迁移预览")
@@ -1310,24 +1314,54 @@ def project_normalize_cmd(
                 console.print("[dim]无待迁移的 legacy project[/]")
             else:
                 console.print(t)
-            stats = project_normalize.migrate_legacy_projects(
+            doc_prev = project_normalize.preview_document_projects(conn)
+            if doc_prev:
+                t2 = Table(title="索引 project 对齐预览")
+                t2.add_column("当前")
+                t2.add_column("目标")
+                t2.add_column("文档数", justify="right")
+                for row in doc_prev[:20]:
+                    t2.add_row(row["from"], row["to"], str(row["documents"]))
+                console.print(t2)
+            stats = project_normalize.run_full_normalize(
                 conn, dry_run=True, only=project or None,
             )
+            leg = stats["legacy"]
+            docs = stats["documents"]
+            cur = stats["cursor"]
             console.print(
-                f"[dim]将更新：events {stats['events']}，documents {stats['documents']}，"
-                f"chunks {stats['chunks']}，引导语片段 {stats['prompt_fragments']}，"
-                f"归档 meta {stats['cursor_archives']}[/]"
+                f"[dim]将更新：legacy events {leg['events']} · "
+                f"documents {docs['documents']} · chunks {docs['chunks']} · "
+                f"Cursor 补全 {cur['updated']}（跳过 {cur['skipped']}）[/]"
+            )
+            empty = audit.get("empty_cursor_events", 0)
+            if empty:
+                console.print(
+                    f"[dim]当前 Cursor 空 project {empty} 条："
+                    f"{audit.get('empty_cursor_by_slug')}[/]"
+                )
+            return
+        if legacy_only:
+            stats = project_normalize.migrate_legacy_projects(
+                conn, dry_run=False, only=project or None,
+            )
+            console.print(
+                f"[green]✓[/] legacy project 归一化："
+                f" events {stats['events']}，FTS {stats['events_fts']}，"
+                f" documents {stats['documents']}，chunks {stats['chunks']}"
             )
             return
-        stats = project_normalize.migrate_legacy_projects(
+        stats = project_normalize.run_full_normalize(
             conn, dry_run=False, only=project or None,
         )
+    leg = stats["legacy"]
+    docs = stats["documents"]
+    cur = stats["cursor"]
     console.print(
         f"[green]✓[/] project 归一化："
-        f" events {stats['events']}，FTS {stats['events_fts']}，"
-        f" documents {stats['documents']}，chunks {stats['chunks']}，"
-        f" 引导语 {stats['prompt_fragments']}+{stats['prompt_guides']}，"
-        f" 归档 {stats['cursor_archives']}，摘要 {stats['note_titles']}"
+        f" legacy events {leg['events']} · documents {docs['documents']} · "
+        f"chunks {docs['chunks']} · symbols {docs['symbols']} · "
+        f"Cursor 补全 {cur['updated']}"
     )
 
 

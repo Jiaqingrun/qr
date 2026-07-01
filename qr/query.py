@@ -24,7 +24,7 @@ SYSTEM = (
     "你是用户的QR本地知识库助手。依据提供的【本地上下文】和（若有）【网络搜索结果】回答问题，"
     "标注引用来源（本地文件路径或网络链接）。若都没有答案，明确说明不知道，不要编造。用简体中文回答。"
     "若问 qr schedule install / launchd 后台任务，须列全 com.qr.tracker、com.qr.cursor、com.qr.auto、"
-    "com.qr.weekly、com.qr.daily、com.qr.eval、com.qr.web、com.qr.web-watch（以【稳定事实】为准）。"
+    "com.qr.weekly、com.qr.daily、com.qr.eval、com.qr.eval-usage、com.qr.web、com.qr.web-watch（以【稳定事实】为准）。"
 )
 
 
@@ -83,6 +83,12 @@ def _project_filter_match(
         from . import workspace
 
         return workspace.is_searchable_content(path, doc_project)
+    from . import workspace
+
+    filter_vals = {v.lower() for v in workspace.project_filter_values(project, None)}
+    doc_canon = workspace.canonical_project_id(doc_project, None)
+    if doc_canon and doc_canon.lower() in filter_vals:
+        return True
     pl = project.lower()
     if "/" in pl:
         return pl in path_l or pl in doc_l
